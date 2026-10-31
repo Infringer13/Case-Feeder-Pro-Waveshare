@@ -1,6 +1,6 @@
 /**
  * @file lv_conf.h
- * LVGL v8 configuration for the Case Feeder Pro LCD (320x240 ILI9341).
+ * LVGL v8 configuration for the Case Feeder Pro LCD (320x240).
  * Licensed under GPL-3.0.
  */
 

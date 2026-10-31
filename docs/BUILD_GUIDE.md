@@ -21,9 +21,12 @@ firmware, first setup, and day-to-day use. For the parts, see the
 - The **controller** (BTT SKR Pico V1.0) runs everything that moves: the
   feeder motors, the part sensors, jam detection and the saved
   settings. It runs a **case feeder**, a **bullet feeder**, or **both**.
-- The **touchscreen** (LCDWiki ES3C28P) connects to the controller with a
-  4-wire cable. It shows each feeder, sends your commands, and plays the
-  alert sounds. The feeders keep running if it is unplugged.
+- The **touchscreen** connects to the controller with a short cable. It
+  shows each feeder, sends your commands, and plays the alert sounds. The
+  feeders keep running if it is unplugged. The default board is the LCDWiki
+  ES3C28P. A Waveshare ESP32-S3-Touch-LCD-2.8 is the alternative; it uses
+  different pins and a different firmware env, and the printed lid was not
+  drawn for it.
 - Each feeder has **fixed ports** on the controller. Which feeders the
   controller runs is the **Machine** setting, chosen on the touchscreen, so
   you never rewire to change it.
@@ -66,7 +69,8 @@ crimp tool.
 | Driver fan | 2-pin JST-XH plug | plugs straight into FAN1 |
 | Break-beam sensor | JST-XH plugs; one may be 2-pin | re-pin a 2-pin plug into a 3-pin housing to match the STOP connector |
 | TCRT5000 IR sensor | header pins, no wires | make a 3-wire cable with a 3-pin JST-XH plug for the STOP connector |
-| Touchscreen | a cable with a small 4-pin plug on the screen end and Dupont connectors on the other | re-pin the Dupont end into a 5-pin JST-XH housing for the Pi UART connector (one `5V` position stays empty), and add the series resistors (see [Touchscreen wiring](#touchscreen-wiring)) |
+| Touchscreen (ES3C28P) | a cable with a small 4-pin plug on the screen end and Dupont connectors on the other | re-pin the Dupont end into a 5-pin JST-XH housing for the Pi UART connector (one `5V` position stays empty), and add the series resistors (see [Touchscreen wiring](#touchscreen-wiring)) |
+| Touchscreen (Waveshare) | pin headers, no Pico cable | make the cable in [Waveshare wiring](#waveshare-esp32-s3-touch-lcd-28). 5V lands on VBus, not on a 3V3 pin |
 
 ### Jumpers
 
@@ -114,6 +118,10 @@ there**. A sensor that works the other way is set with one command during
 
 ## Touchscreen wiring
 
+### LCDWiki ES3C28P
+
+Firmware env `lcd`. This is the board the printed lid was drawn around.
+
 | SKR Pico Pi UART connector | Touchscreen UART connector |
 |---|---|
 | `5V` | `5V` |
@@ -128,6 +136,44 @@ there**. A sensor that works the other way is set with one command during
 - **Twist each data wire with its own ground wire**, keep the cable short,
   and route it away from the motor cables.
 - Clip a **ferrite core** onto the cable near the touchscreen.
+
+### Waveshare ESP32-S3-Touch-LCD-2.8
+
+Firmware env `lcd_waveshare`. Same UART GPIOs as the ES3C28P. The power pin
+is not the same.
+
+Waveshare's wiki lists two headers that carry the link. The **UART header**
+is GND, 3V3, TXD (GPIO43), RXD (GPIO44). It has **no 5 V pin**. The **12-pin
+header** has VBus, which the wiki calls the 5 V USB supply, and a 3V3 pin
+that the wiki calls a **3.3 V output** (the onboard ME6217C33 regulator).
+Power from the Pico's `5V` goes to **VBus**. Leave every pin labeled 3V3
+unconnected: those are outputs, and 5 V on one of them will damage the board.
+
+| SKR Pico Pi UART connector | Waveshare |
+|---|---|
+| `5V` | **VBus** on the 12-pin header |
+| `GND` | `GND` (either header) |
+| `IO0` (controller TX) | `RXD` / GPIO44 |
+| `IO1` (controller RX) | `TXD` / GPIO43 |
+
+The wiki's silkscreen names match those GPIO numbers (TXD is the screen's
+transmit pin). If the screen shows **NO LINK**, swap the two data wires.
+
+Use the same 470 Ω series resistors, twisted grounds and ferrite core as
+the ES3C28P cable. Do not power the board from the Pico and from a computer
+USB cable at the same time: VBus is the USB 5 V rail.
+
+The board is 73.06 × 50.54 mm and its connector positions are not the
+ES3C28P's. Measure it before committing to the printed lid; this firmware
+does not change the lid. The speaker plugs into the board's own speaker
+header. A knob on the board sets the hardware volume; the on-screen volume
+still scales the tones. Settings > Flip screen turns the picture and the
+touch 180 degrees together.
+
+Boards shipped from 5 June 2026 are the V2, which the Waveshare docs say
+uses a CST3530 touch controller instead of the CST328. The label on the
+back of the product says which one you have. This firmware speaks the
+CST328 (V1) only.
 
 ## Flashing the firmware
 
@@ -158,11 +204,16 @@ bootloader by itself; no jumper is needed.
 
 ### Touchscreen (ESP32-S3)
 
-1. Connect the touchscreen to the computer with USB-C.
-2. Run:
+1. Connect the touchscreen to the computer with USB-C. Unplug the cable
+   from the SKR Pico first if the Waveshare is also powered on VBus.
+2. Run one of these, for the board you have:
    ```
    pio run -e lcd -t upload
+   pio run -e lcd_waveshare -t upload
    ```
+   `lcd` is the LCDWiki ES3C28P. `lcd_waveshare` is the Waveshare
+   ESP32-S3-Touch-LCD-2.8. The monitor env matches the board:
+   `pio device monitor -e lcd` or `pio device monitor -e lcd_waveshare`.
 3. If the upload cannot connect, hold the board's **BOOT** button, press
    **RESET**, release BOOT, and run the command again.
 
@@ -338,7 +389,9 @@ controller.
 
 | Symptom | Check |
 |---|---|
-| Screen shows `NO LINK` / `CONTROLLER OFFLINE` | controller powered; swap the two data wires; 5V and GND connected |
+| Screen shows `NO LINK` / `CONTROLLER OFFLINE` | controller powered; swap the two data wires; 5V and GND connected. On a Waveshare, 5V is VBus, not the UART header |
+| Waveshare screen stays dark | 5V is on VBus; nothing is wired to a 3V3 pin; firmware is `lcd_waveshare`, not `lcd` |
+| Waveshare picture is up, touch does nothing | the label on the back. V2 boards (CST3530, shipped from 5 June 2026) are not this firmware |
 | `CHECK DRIVER`, or the LED blinks red once a second | 24 V on; the motor driver could not be configured |
 | Motor buzzes but does not turn | motor coil pairs (see [Motors](#motors)) |
 | Plate turns the wrong way | `M 1` for that feeder |

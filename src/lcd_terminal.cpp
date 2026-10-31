@@ -1,6 +1,8 @@
 // ============================================================
 //  Case Feeder Pro - LCD firmware
-//  LCDWiki ES3C28P 2.8" ESP32-S3 display (ILI9341 + FT6336 touch)
+//  Touchscreen firmware. The PlatformIO env picks the board:
+//    lcd             LCDWiki ES3C28P (ILI9341 + FT6336 + ES8311)
+//    lcd_waveshare   Waveshare ESP32-S3-Touch-LCD-2.8 (ST7789 + CST328 + PCM5101)
 //  Copyright (C) the Case Feeder Pro contributors. Licensed under GPL-3.0.
 //
 //  The touchscreen for the controller. It lays itself out from what the
