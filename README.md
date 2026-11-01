@@ -105,7 +105,7 @@ pio run -e lcd_waveshare -t upload
 | `src/feeder_protocol.h` | the UART protocol shared by both |
 | `src/*.h` | display, touch, audio and LVGL configuration for the touchscreen |
 | `lib/FT6336/` | touch controller driver (ES3C28P) |
-| `lib/CST328/` | touch controller driver (Waveshare) |
+| `lib/CST328/` | Waveshare touch drivers (CST328 and CST3530) |
 | `docs/` | build guide, parts list, printed parts, controller protocol, and the 3D viewer (`docs/viewer/`) |
 | `stl/` | 3D-printable parts plus DXF and STEP files for cut and machined parts, one folder per assembly |
 

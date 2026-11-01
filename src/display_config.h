@@ -5,7 +5,7 @@
  * The display SPI pins are build flags in platformio.ini (TFT_eSPI).
  * Which board those flags describe is selected by the PlatformIO env:
  *   lcd             LCDWiki ES3C28P (ILI9341 + FT6336)
- *   lcd_waveshare   Waveshare ESP32-S3-Touch-LCD-2.8 (ST7789 + CST328)
+ *   lcd_waveshare   Waveshare ESP32-S3-Touch-LCD-2.8 (ST7789 + CST328 or CST3530)
  *
  * Part of Case Feeder Pro. Licensed under GPL-3.0.
  */
@@ -31,9 +31,10 @@
 #endif
 
 #if defined(BOARD_WAVESHARE)
-// ===== TOUCH PANEL (CST328, I2C 0x1A) =====
-// Waveshare wiki "LCD" table and Touch_CST328.h in their Arduino demo.
+// ===== TOUCH PANEL (CST328 at 0x1A, or CST3530 at 0x58) =====
+// Same pins in Waveshare's V1 and V2 demos (Touch_CST328.h / Touch_CST3530.h).
 // This bus is not the 4-pin I2C header (that header is GPIO11/GPIO10).
+// Boot probes the CST328 first, then the CST3530, matching their V2 demo.
 #define TOUCH_SDA 1
 #define TOUCH_SCL 3
 #define TOUCH_INT 4

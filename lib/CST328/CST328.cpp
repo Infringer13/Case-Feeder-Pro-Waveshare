@@ -1,23 +1,26 @@
 // Minimal CST328 capacitive touch driver. Part of Case Feeder Pro. GPL-3.0.
 //
-// Protocol from Waveshare's ESP32-S3-Touch-LCD-2.8 Arduino demo
-// (Touch_CST328.cpp / Touch_CST328.h) and their ESP-IDF CST328 driver:
+// Protocol from Waveshare's ESP32-S3-Touch-LCD-2.8 V2 Arduino demo
+// (Touch_CST328.cpp / Touch_CST328.h):
 //   address 0x1A, 16-bit registers, point count at 0xD005, coordinates at 0xD000.
-// The touch bus is Wire1 (GPIO1/GPIO3). The IMU and RTC use a different bus.
+// Identification is the debug-info word 0xCACA, the same test their Touch_Init uses
+// before it falls through to the CST3530.
 #include "CST328.h"
 
 static constexpr uint8_t  ADDR           = 0x1A;
 static constexpr uint16_t REG_POINTS     = 0xD005;
 static constexpr uint16_t REG_XY         = 0xD000;
+static constexpr uint16_t REG_DEBUG_INFO = 0xD101;
+static constexpr uint16_t REG_INFO_BLOCK = 0xD1F4;
+static constexpr uint16_t REG_BOOT_TIME  = 0xD1FC;
 static constexpr uint16_t REG_NORMAL     = 0xD109;
+static constexpr uint16_t SIGNATURE      = 0xCACA;
 static constexpr uint32_t I2C_HZ         = 400000;
 
 CST328::CST328(int sda, int scl, int intPin, int rstPin, int width, int height)
     : _sda(sda), _scl(scl), _int(intPin), _rst(rstPin), _width(width), _height(height) {}
 
-void CST328::begin() {
-    // Wire1, not Wire: Waveshare's demo keeps the touch controller off the
-    // GPIO11/GPIO10 bus shared by the QMI8658 and PCF85063.
+bool CST328::probe() {
     Wire1.begin(_sda, _scl, I2C_HZ);
     if (_int >= 0) pinMode(_int, INPUT);
     if (_rst >= 0) {
@@ -30,10 +33,27 @@ void CST328::begin() {
         digitalWrite(_rst, HIGH);
         delay(50);
     }
-    if (!writeRegister(REG_NORMAL, nullptr, 0)) {
-        Serial.println("CST328: no reply at 0x1A");
-        Serial.println("CST328: V2 boards (label on the back) use a CST3530, which this build does not speak");
+    const uint16_t signature = readSignature();
+    if (signature == SIGNATURE) {
+        Serial.println("Touch controller CST328 initialized");
+        return true;
     }
+    Serial.println("CST328 init failed, try CST3530");
+    return false;
+}
+
+uint16_t CST328::readSignature() {
+    // Enter debug-info mode, then read the block their demo checks for 0xCACA.
+    // A CST3530 does not answer 0x1A, so the first write fails and we stop.
+    if (!writeRegister(REG_DEBUG_INFO, nullptr, 0)) return 0;
+    uint8_t boot[4];
+    if (!readRegister(REG_BOOT_TIME, boot, sizeof(boot))) return 0;
+    if (!readRegister(REG_BOOT_TIME, boot, sizeof(boot))) return 0;
+    uint8_t info[24] = {};
+    if (!readRegister(REG_INFO_BLOCK, info, sizeof(info))) return 0;
+    const uint16_t signature = ((uint16_t)info[11] << 8) | info[10];
+    writeRegister(REG_NORMAL, nullptr, 0);
+    return signature;
 }
 
 void CST328::read() {

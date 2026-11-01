@@ -9,7 +9,7 @@ case or bullet feeder and twice for a dual setup.
 |---|---|---|---|
 | BigTreeTech SKR Pico V1.0 | 1 | controller | [Amazon](https://a.co/d/09xAvw5X) |
 | LCDWiki ES3C28P 2.8" ESP32-S3 display | 1 | touchscreen. Firmware env `lcd` | [Amazon](https://www.amazon.com/dp/B0FKG7WRWV) |
-| Waveshare ESP32-S3-Touch-LCD-2.8 | 1 | alternative to the ES3C28P (pick one). Firmware env `lcd_waveshare`. 73.06 × 50.54 mm; measure it before expecting it to fit the printed lid. Wiring is in the [build guide](BUILD_GUIDE.md#waveshare-esp32-s3-touch-lcd-28) | [Waveshare](https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-2.8) |
+| Waveshare ESP32-S3-Touch-LCD-2.8 | 1 | alternative to the ES3C28P (pick one). V1 (CST328) and V2 / Rev1.1 (CST3530) both use firmware env `lcd_waveshare`. 73.06 × 50.54 mm; measure it before expecting it to fit the printed lid. Wiring is in the [build guide](BUILD_GUIDE.md#waveshare-esp32-s3-touch-lcd-28) | [Waveshare](https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-2.8) |
 | 24 V fan | 1 | driver cooling, on FAN1; required for dual | [Amazon](https://www.amazon.com/dp/B0757RPCN9) |
 | WS2812 RGB LED | 1 | optional external status light | |
 

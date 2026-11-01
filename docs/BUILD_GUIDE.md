@@ -170,10 +170,14 @@ header. A knob on the board sets the hardware volume; the on-screen volume
 still scales the tones. Settings > Flip screen turns the picture and the
 touch 180 degrees together.
 
-Boards shipped from 5 June 2026 are the V2, which the Waveshare docs say
-uses a CST3530 touch controller instead of the CST328. The label on the
-back of the product says which one you have. This firmware speaks the
-CST328 (V1) only.
+The back label says which touch chip is fitted. A V1 board is the CST328.
+A board marked V2, or silkscreened Rev1.1, is the CST3530. Waveshare's V2
+demo uses the same display, backlight, speaker and UART pins as the V1
+demo, and the same touch pins (SDA GPIO1, SCL GPIO3, INT GPIO4, RST GPIO2).
+This firmware follows that demo: it tries the CST328, and if that chip does
+not answer it initialises the CST3530. The USB serial line names the chip
+it found (`CST328` or `CST3530`). A CST3530 reset takes about half a second,
+so the first picture is a little later on a V2 board.
 
 ## Flashing the firmware
 
@@ -391,7 +395,7 @@ controller.
 |---|---|
 | Screen shows `NO LINK` / `CONTROLLER OFFLINE` | controller powered; swap the two data wires; 5V and GND connected. On a Waveshare, 5V is VBus, not the UART header |
 | Waveshare screen stays dark | 5V is on VBus; nothing is wired to a 3V3 pin; firmware is `lcd_waveshare`, not `lcd` |
-| Waveshare picture is up, touch does nothing | the label on the back. V2 boards (CST3530, shipped from 5 June 2026) are not this firmware |
+| Waveshare picture is up, touch does nothing | USB serial at boot. It should name CST328 or CST3530. "neither answered" means the touch chip did not ACK. A touch that lands on the wrong control is the axis map; Flip screen only turns it 180° |
 | `CHECK DRIVER`, or the LED blinks red once a second | 24 V on; the motor driver could not be configured |
 | Motor buzzes but does not turn | motor coil pairs (see [Motors](#motors)) |
 | Plate turns the wrong way | `M 1` for that feeder |

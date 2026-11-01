@@ -2,7 +2,7 @@
  * @file lvgl_driver.h
  * LVGL v8 display and touch driver for the 2.8" ESP32-S3 display module.
  * Uses TFT_eSPI for the display and the board's touch controller
- * (FT6336 on the ES3C28P, CST328 on the Waveshare). TFT_eSPI is
+ * (FT6336 on the ES3C28P; CST328 or CST3530 on the Waveshare). TFT_eSPI is
  * configured via build flags in platformio.ini.
  * Part of Case Feeder Pro. Licensed under GPL-3.0.
  */
@@ -14,7 +14,7 @@
 #include <lvgl.h>
 #include <TFT_eSPI.h>
 #if defined(BOARD_WAVESHARE)
-#include <CST328.h>
+#include <WaveshareTouch.h>
 #else
 #include <FT6336.h>
 #endif
@@ -27,7 +27,7 @@
 // TFT and touch objects - managed by this driver
 static TFT_eSPI* _tft = nullptr;
 #if defined(BOARD_WAVESHARE)
-static CST328* _touch = nullptr;
+static WaveshareTouch* _touch = nullptr;
 #else
 static FT6336* _touch = nullptr;
 #endif
@@ -60,8 +60,9 @@ static void lvgl_display_flush(lv_disp_drv_t* disp, const lv_area_t* area, lv_co
 /**
  * Touch read callback. Both controllers report portrait panel coordinates
  * that match TFT_eSPI rotation 0 of their own driver:
- *   FT6336 on the ES3C28P, and the CST328 in Waveshare's Arduino demo
- *   (MADCTL 0x00, touch X/Y passed straight through in LVGL_Driver.cpp).
+ *   FT6336 on the ES3C28P, and both Waveshare controllers. Their V2 demo
+ *   passes CST328 and CST3530 coordinates through the same LVGL read
+ *   (MADCTL 0x00, touch X/Y used as portrait pixels).
  * Rotation 1 is portrait turned 90 degrees, so landscape X is the panel's
  * Y and landscape Y is the panel's X run backwards. Flip screen is that
  * landscape turned another 180 degrees. The same numbers come out of the
@@ -204,9 +205,8 @@ inline void lvgl_driver_init(void) {
 
     // Touch controller (pins in display_config.h). Portrait 240 x 320.
 #if defined(BOARD_WAVESHARE)
-    _touch = new CST328(TOUCH_SDA, TOUCH_SCL, TOUCH_INT, TOUCH_RST, 240, 320);
+    _touch = new WaveshareTouch(TOUCH_SDA, TOUCH_SCL, TOUCH_INT, TOUCH_RST, 240, 320);
     _touch->begin();
-    Serial.println("LVGL: Touch initialized (CST328 @ 0x1A)");
 #else
     _touch = new FT6336(TOUCH_SDA, TOUCH_SCL, TOUCH_INT, TOUCH_RST, 240, 320);
     _touch->begin();
