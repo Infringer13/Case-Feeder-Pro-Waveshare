@@ -44,7 +44,7 @@ The case feeder uses the break-beam sensor; the bullet feeder uses the TCRT5000.
 | JST-XH 2.54 mm connector kit, pre-crimped wires | 1 | the SKR Pico uses JST-XH connectors; cables need to be made (see the [build guide](BUILD_GUIDE.md#connectors-and-cables)) | [Amazon](https://www.amazon.com/dp/B0H3WK88ZL) |
 | Motor cable, 4-pin | per feeder | | |
 | Sensor cable, 3-wire | per feeder | | |
-| Touchscreen cable, 4-wire | 1 | ES3C28P: 5V, GND, TX, RX; comes with that display. Re-pin its Dupont end into a 5-pin JST-XH housing for the SKR Pico. The Waveshare has no 5V pin on its UART header; its 5V wire goes to VBus on the 12-pin header (see the [build guide](BUILD_GUIDE.md#waveshare-esp32-s3-touch-lcd-28)) | |
+| Touchscreen cable, 4-wire | 1 | ES3C28P: 5V, GND, TX, RX; comes with that display. Re-pin its Dupont end into a 5-pin JST-XH housing for the SKR Pico. Waveshare: make the cable in the [build guide](BUILD_GUIDE.md#waveshare-esp32-s3-touch-lcd-28). Pico `5V` to VBus on the SH1.0 12-pin header, Pico `GND` to the SH1.0 UART header `GND` only, `IO0` to `RXD`, `IO1` to `TXD`. Leave UART `3V3` open | |
 | 470 Ω resistor | 2 | one in series with each touchscreen data wire | |
 | Clip-on ferrite core | 1 | on the touchscreen cable | |
 | USB-C cable | 1 | for flashing both boards | |

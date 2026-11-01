@@ -70,7 +70,7 @@ crimp tool.
 | Break-beam sensor | JST-XH plugs; one may be 2-pin | re-pin a 2-pin plug into a 3-pin housing to match the STOP connector |
 | TCRT5000 IR sensor | header pins, no wires | make a 3-wire cable with a 3-pin JST-XH plug for the STOP connector |
 | Touchscreen (ES3C28P) | a cable with a small 4-pin plug on the screen end and Dupont connectors on the other | re-pin the Dupont end into a 5-pin JST-XH housing for the Pi UART connector (one `5V` position stays empty), and add the series resistors (see [Touchscreen wiring](#touchscreen-wiring)) |
-| Touchscreen (Waveshare) | pin headers, no Pico cable | make the cable in [Waveshare wiring](#waveshare-esp32-s3-touch-lcd-28). 5V lands on VBus, not on a 3V3 pin |
+| Touchscreen (Waveshare) | SH1.0 4-pin UART header, SH1.0 12-pin header, and a 1.25 mm 4-pin speaker header. No Pico cable | make the cable in [Waveshare wiring](#waveshare-esp32-s3-touch-lcd-28). Pico `5V` goes to VBus. UART `3V3` stays open. One ground wire |
 
 ### Jumpers
 
@@ -139,45 +139,66 @@ Firmware env `lcd`. This is the board the printed lid was drawn around.
 
 ### Waveshare ESP32-S3-Touch-LCD-2.8
 
-Firmware env `lcd_waveshare`. Same UART GPIOs as the ES3C28P. The power pin
-is not the same.
+Firmware env `lcd_waveshare`, for a V1 board and for a V2 / Rev1.1 board.
+The cable is the same either way. On the SKR Pico the plug is the
+**Raspberry Pi UART** connector, the 5-pin JST-XH header printed
+`5V 5V GND IO1 IO0`. One of the two `5V` pins is used; the other stays empty.
 
-Waveshare's wiki lists two headers that carry the link. The **UART header**
-is GND, 3V3, TXD (GPIO43), RXD (GPIO44). It has **no 5 V pin**. The **12-pin
-header** has VBus, which the wiki calls the 5 V USB supply, and a 3V3 pin
-that the wiki calls a **3.3 V output** (the onboard ME6217C33 regulator).
-Power from the Pico's `5V` goes to **VBus**. Leave every pin labeled 3V3
-unconnected: those are outputs, and 5 V on one of them will damage the board.
+Waveshare's [wiki](https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-2.8)
+and the [schematic](https://files.waveshare.com/wiki/ESP32-S3-Touch-LCD-2.8/ESP32-S3-Touch-LCD-2.8.pdf)
+linked from that page name the plugs:
 
-| SKR Pico Pi UART connector | Waveshare |
+- The **UART header** is a **4-pin SH1.0** (1.0 mm) connector: `GND`, `3V3`,
+  `TXD` (GPIO43), `RXD` (GPIO44). It has no 5 V pin.
+- The **12-pin header** along the bottom edge is **SH1.0-12P**. `VBus` on
+  that header is the USB 5 V rail.
+- The **speaker header** is a **1.25 mm 4-pin** right-angle connector on the
+  amplifier outputs. The wiki supplies an 8 Ω 2 W 2030 speaker for it.
+
+```text
+SKR Pico, Raspberry Pi UART          Waveshare
+5V  ------------------------------>  VBus on the 12-pin header
+5V  (the other 5V pin stays empty)
+GND ------------------------------>  GND on the UART header
+IO1 (Pico RX) ------------------->  TXD  GPIO43
+IO0 (Pico TX) ------------------->  RXD  GPIO44
+                                     3V3 on the UART header stays open
+```
+
+| SKR Pico Raspberry Pi UART | Waveshare |
 |---|---|
-| `5V` | **VBus** on the 12-pin header |
-| `GND` | `GND` (either header) |
-| `IO0` (controller TX) | `RXD` / GPIO44 |
-| `IO1` (controller RX) | `TXD` / GPIO43 |
+| `5V` | `VBus` on the 12-pin header |
+| `GND` | `GND` on the 4-pin UART header |
+| `IO0` (Pico TX) | `RXD` (GPIO44) |
+| `IO1` (Pico RX) | `TXD` (GPIO43) |
+| leave open | `3V3` on the UART header |
 
-The wiki's silkscreen names match those GPIO numbers (TXD is the screen's
-transmit pin). If the screen shows **NO LINK**, swap the two data wires.
+- `3V3` on the UART header is an output of the onboard regulator. Leave it
+  unconnected. Pico `5V` goes to `VBus` only, never to a pin labeled `3V3`.
+- Use **one ground**: UART `GND` to Pico `GND`. Do not add a second ground
+  wire to the 12-pin header.
+- Do not feed Pico `5V` into `VBus` while a computer USB-C cable is plugged
+  into the Waveshare. `VBus` is that USB 5 V rail. Unplug the Pico `5V` wire
+  before flashing the board over USB.
+- If the screen shows **NO LINK**, swap the two data wires.
+- Fit a **470 Ω resistor in series with each data wire**, twist each data
+  wire with the ground wire, keep the cable short, and clip a ferrite core
+  on near the display. Same as the ES3C28P cable.
+- The separate 4-pin I2C header (also SH1.0) is the IMU and RTC bus. Leave
+  it unconnected.
 
-Use the same 470 Ω series resistors, twisted grounds and ferrite core as
-the ES3C28P cable. Do not power the board from the Pico and from a computer
-USB cable at the same time: VBus is the USB 5 V rail.
+The speaker plugs into the speaker header. The knob on the board sets the
+hardware volume; Settings > Volume still scales the tones in software.
 
-The board is 73.06 × 50.54 mm and its connector positions are not the
-ES3C28P's. Measure it before committing to the printed lid; this firmware
-does not change the lid. The speaker plugs into the board's own speaker
-header. A knob on the board sets the hardware volume; the on-screen volume
-still scales the tones. Settings > Flip screen turns the picture and the
-touch 180 degrees together.
+The board is 73.06 × 50.54 mm. Its connectors are not in the same places as
+the ES3C28P, and the printed lid was not drawn for it. Measure the board
+before committing to that lid.
 
-The back label says which touch chip is fitted. A V1 board is the CST328.
-A board marked V2, or silkscreened Rev1.1, is the CST3530. Waveshare's V2
-demo uses the same display, backlight, speaker and UART pins as the V1
-demo, and the same touch pins (SDA GPIO1, SCL GPIO3, INT GPIO4, RST GPIO2).
-This firmware follows that demo: it tries the CST328, and if that chip does
-not answer it initialises the CST3530. The USB serial line names the chip
-it found (`CST328` or `CST3530`). A CST3530 reset takes about half a second,
-so the first picture is a little later on a V2 board.
+The label on the back says which touch chip is fitted. V1 is the CST328. V2,
+or a board silkscreened Rev1.1, is the CST3530. Display, backlight, speaker,
+and this cable are the same on both. The USB serial line names the chip it
+found. A CST3530 reset takes about half a second, so the first picture is a
+little later on a V2 board.
 
 ## Flashing the firmware
 
@@ -208,8 +229,9 @@ bootloader by itself; no jumper is needed.
 
 ### Touchscreen (ESP32-S3)
 
-1. Connect the touchscreen to the computer with USB-C. Unplug the cable
-   from the SKR Pico first if the Waveshare is also powered on VBus.
+1. Connect the touchscreen to the computer with USB-C. On a Waveshare,
+   unplug the Pico `5V` wire from `VBus` first. Pico `5V` and the computer
+   cable both feed that pin.
 2. Run one of these, for the board you have:
    ```
    pio run -e lcd -t upload
