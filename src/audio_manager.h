@@ -1,16 +1,19 @@
 /*
  * Audio Manager - I2S tone generation for the Case Feeder Pro LCD.
- * The 2.8" ESP32-S3 display board has an ES8311 codec and a speaker
- * amplifier. Uses the built-in ESP-IDF I2S driver, so no extra lib_deps.
+ * Uses the built-in ESP-IDF I2S driver, so no extra lib_deps.
  * Licensed under GPL-3.0.
  *
- * Onboard audio pins (fixed by the board, do not collide with TMC/beam/display):
+ * LCDWiki ES3C28P (env:lcd): ES8311 codec and a speaker amplifier.
  *   AUDIO_ENABLE = GPIO1 (amp enable, LOW = on)
  *   I2S MCLK = GPIO4, BCLK = GPIO5, WS = GPIO7, DOUT = GPIO8
+ *   The ES8311 sits on the same I2C bus as the FT6336; Wire.begin() is
+ *   already called by the touch driver, so begin() runs AFTER display init.
  *
- * The ES8311 sits on the same I2C bus as the FT6336 touch panel; Wire.begin()
- * is already called by the touch driver during lvgl_driver_init(), so begin()
- * here must run AFTER the display/touch init.
+ * Waveshare ESP32-S3-Touch-LCD-2.8 (env:lcd_waveshare): PCM5101A DAC.
+ *   I2S BCK = GPIO48, LRCK = GPIO38, DIN = GPIO47. No MCLK pin.
+ *   Waveshare's PCM5101 demo (Audio_PCM5101.h / PCM5101.h) has no codec
+ *   I2C and no amp-enable GPIO. GPIO1 is the CST328 SDA on this board
+ *   and must not be driven as an output.
  *
  * NON-BLOCKING: play*() only QUEUES a note sequence; service() - called every
  * loop() pass - streams samples into the I2S DMA with a zero timeout, so the
@@ -26,6 +29,14 @@
 #include <Wire.h>
 #include <driver/i2s.h>
 
+#if defined(BOARD_WAVESHARE)
+// ----- PCM5101A on the Waveshare board. Software volume only. -----
+#define I2S_MCLK_PIN      -1    // the chip's SCK is unconnected; it PLLs from BCK
+#define I2S_BCLK_PIN      48
+#define I2S_WS_PIN        38    // LRCK
+#define I2S_DOUT_PIN      47
+#define I2S_DIN_PIN       -1
+#else
 // ----- Onboard audio pins (LCDWiki 2.8" ESP32-S3 Display) -----
 #define AUDIO_ENABLE_PIN  1     // amp enable, LOW = on
 #define I2S_MCLK_PIN      4
@@ -33,6 +44,7 @@
 #define I2S_WS_PIN        7
 #define I2S_DOUT_PIN      8
 #define I2S_DIN_PIN      -1     // not used for playback
+#endif
 
 // ES8311 I2C address
 #define ES8311_ADDR       0x18
@@ -104,9 +116,16 @@ private:
             .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
             .dma_buf_count = DMA_BUF_COUNT,
             .dma_buf_len = DMA_BUF_LEN,
+#if defined(BOARD_WAVESHARE)
+            // PCM5101 locks to BCK. There is no MCLK pin to clock from the APLL.
+            .use_apll = false,
+            .tx_desc_auto_clear = true,
+            .fixed_mclk = 0
+#else
             .use_apll = true,
             .tx_desc_auto_clear = true,
             .fixed_mclk = I2S_SAMPLE_RATE * 384
+#endif
         };
         i2s_pin_config_t pin_config = {
             .mck_io_num = I2S_MCLK_PIN,
@@ -147,14 +166,21 @@ private:
 public:
     void begin() {
         Serial.println("\n=== Audio Init ===");
+#if defined(BOARD_WAVESHARE)
+        // PCM5101: I2S only. Do not touch GPIO1 (CST328 SDA on this board).
+        Serial.println("PCM5101 I2S (no codec, no amp-enable pin)");
+#else
         pinMode(AUDIO_ENABLE_PIN, OUTPUT);
         digitalWrite(AUDIO_ENABLE_PIN, LOW);   // amp ON (active low)
+#endif
         if (!initI2S()) {
             Serial.println("Audio FAILED - I2S error");
             return;
         }
+#if !defined(BOARD_WAVESHARE)
         delay(50);
         initES8311();
+#endif
         initialized = true;
         Serial.println("=== Audio Ready ===\n");
     }

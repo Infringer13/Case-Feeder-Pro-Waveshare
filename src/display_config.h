@@ -1,20 +1,27 @@
 /*
  * display_config.h
- * Display + capacitive-touch pin/geometry constants for the
- * 2.8" ESP32-S3 Display module (LCDWiki ES3C28P, ILI9341 + FT6336).
+ * Screen geometry and capacitive-touch pins for the touchscreen firmware.
  *
- * The display SPI pins are configured via build flags in platformio.ini
- * (TFT_eSPI). These are the touch I2C pins and screen geometry consumed
- * by lvgl_driver.h. Part of Case Feeder Pro. Licensed under GPL-3.0.
+ * The display SPI pins are build flags in platformio.ini (TFT_eSPI).
+ * Which board those flags describe is selected by the PlatformIO env:
+ *   lcd             LCDWiki ES3C28P (ILI9341 + FT6336)
+ *   lcd_waveshare   Waveshare ESP32-S3-Touch-LCD-2.8 (ST7789 + CST328 or CST3530)
+ *
+ * Part of Case Feeder Pro. Licensed under GPL-3.0.
  */
 #ifndef DISPLAY_CONFIG_H
 #define DISPLAY_CONFIG_H
 
 // ===== DISPLAY GEOMETRY =====
+// Both panels are 240x320 portrait glass. The UI is landscape.
 #define SCREEN_WIDTH    320
 #define SCREEN_HEIGHT   240
-#define SCREEN_ROTATION         1   // 1 = landscape (USB on the right)
-#define SCREEN_ROTATION_FLIPPED 3   // 3 = landscape turned 180 (USB on the left)
+// TFT_eSPI rotation. On the ES3C28P, rotation 1 puts the USB socket on the
+// right and rotation 3 puts it on the left. On the Waveshare the same two
+// rotations are 180 degrees apart; which edge faces the operator depends
+// on how the board is mounted (the case lid is not drawn for that board).
+#define SCREEN_ROTATION         1
+#define SCREEN_ROTATION_FLIPPED 3
 
 // Default orientation: build with -DSCREEN_FLIPPED=1 to start with the screen
 // turned 180 degrees. Settings > Flip screen changes it on the unit; that
@@ -23,10 +30,21 @@
 #define SCREEN_FLIPPED 0
 #endif
 
+#if defined(BOARD_WAVESHARE)
+// ===== TOUCH PANEL (CST328 at 0x1A, or CST3530 at 0x58) =====
+// Same pins in Waveshare's V1 and V2 demos (Touch_CST328.h / Touch_CST3530.h).
+// This bus is not the 4-pin I2C header (that header is GPIO11/GPIO10).
+// Boot probes the CST328 first, then the CST3530, matching their V2 demo.
+#define TOUCH_SDA 1
+#define TOUCH_SCL 3
+#define TOUCH_INT 4
+#define TOUCH_RST 2
+#else
 // ===== TOUCH PANEL (FT6336, I2C - onboard) =====
 #define TOUCH_SDA 16
 #define TOUCH_SCL 15
 #define TOUCH_INT 17
 #define TOUCH_RST 18
+#endif
 
 #endif // DISPLAY_CONFIG_H

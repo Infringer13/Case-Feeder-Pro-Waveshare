@@ -1,8 +1,9 @@
 /**
  * @file lvgl_driver.h
  * LVGL v8 display and touch driver for the 2.8" ESP32-S3 display module.
- * Uses TFT_eSPI for the display (ILI9341) and FT6336 for capacitive touch.
- * TFT_eSPI is configured via build flags in platformio.ini.
+ * Uses TFT_eSPI for the display and the board's touch controller
+ * (FT6336 on the ES3C28P; CST328 or CST3530 on the Waveshare). TFT_eSPI is
+ * configured via build flags in platformio.ini.
  * Part of Case Feeder Pro. Licensed under GPL-3.0.
  */
 
@@ -12,7 +13,11 @@
 #include <Arduino.h>
 #include <lvgl.h>
 #include <TFT_eSPI.h>
+#if defined(BOARD_WAVESHARE)
+#include <WaveshareTouch.h>
+#else
 #include <FT6336.h>
+#endif
 #include "display_config.h"
 
 // Display buffer size - 10 rows of pixels (~1/24 of the 320x240 frame) per
@@ -21,7 +26,11 @@
 
 // TFT and touch objects - managed by this driver
 static TFT_eSPI* _tft = nullptr;
+#if defined(BOARD_WAVESHARE)
+static WaveshareTouch* _touch = nullptr;
+#else
 static FT6336* _touch = nullptr;
+#endif
 // Screen turned 180 degrees? Set before lvgl_driver_init() (from the saved
 // setting / build default) and changed live with lvgl_set_flipped().
 static bool _screenFlipped = (SCREEN_FLIPPED != 0);
@@ -49,8 +58,15 @@ static void lvgl_display_flush(lv_disp_drv_t* disp, const lv_area_t* area, lv_co
 }
 
 /**
- * Touch read callback - reads touch position from FT6336
- * Handles coordinate transformation for landscape mode
+ * Touch read callback. Both controllers report portrait panel coordinates
+ * that match TFT_eSPI rotation 0 of their own driver:
+ *   FT6336 on the ES3C28P, and both Waveshare controllers. Their V2 demo
+ *   passes CST328 and CST3530 coordinates through the same LVGL read
+ *   (MADCTL 0x00, touch X/Y used as portrait pixels).
+ * Rotation 1 is portrait turned 90 degrees, so landscape X is the panel's
+ * Y and landscape Y is the panel's X run backwards. Flip screen is that
+ * landscape turned another 180 degrees. The same numbers come out of the
+ * ES3C28P's ILI9341 rotation-1 map, which this callback already used.
  */
 static void lvgl_touch_read(lv_indev_drv_t* indev, lv_indev_data_t* data) {
     if (!_touch) {
@@ -61,13 +77,11 @@ static void lvgl_touch_read(lv_indev_drv_t* indev, lv_indev_data_t* data) {
     _touch->read();
 
     if (_touch->isTouched) {
-        // Get raw touch coordinates (FT6336 is portrait 240x320)
+        // Raw touch coordinates, portrait 240 x 320.
         int rawX = _touch->points[0].x;
         int rawY = _touch->points[0].y;
 
-        // Transform for landscape mode (rotation 1)
-        // Portrait FT6336: 240x320, Landscape screen: 320x240
-        // Screen X = Touch Y, Screen Y = 240 - Touch X
+        // Landscape (rotation 1): screen X = touch Y, screen Y = 240 - touch X.
         int screenX = rawY;
         int screenY = SCREEN_HEIGHT - 1 - rawX;
         // Flipped 180 (rotation 3): the same mapping mirrored on both axes.
@@ -90,9 +104,59 @@ static void lvgl_touch_read(lv_indev_drv_t* indev, lv_indev_data_t* data) {
     }
 }
 
+#if defined(BOARD_WAVESHARE)
+// Waveshare's Arduino demo (Display_ST7789.cpp) and their ST7789T init use
+// these power and gamma values. TFT_eSPI's generic ST7789 init does not.
+// MADCTL is left to setRotation(); inversion is invertDisplay() (command 0x21).
+static void waveshare_cmd(TFT_eSPI* tft, uint8_t cmd, const uint8_t* data, size_t n) {
+    tft->writecommand(cmd);
+    for (size_t i = 0; i < n; i++) tft->writedata(data[i]);
+}
+
+static void waveshare_panel_setup(TFT_eSPI* tft) {
+    const uint8_t ramctrl[] = { 0x00, 0xE0 };   // big-endian RGB565: TFT_eSPI pushColors swaps bytes. Waveshare 0xE8 sets ENDIAN=LSB for its unswapped LVGL buffer.
+    const uint8_t porch[]   = { 0x0C, 0x0C, 0x00, 0x33, 0x33 };
+    const uint8_t gate[]    = { 0x75 };
+    const uint8_t vcom[]    = { 0x1A };
+    const uint8_t lcm[]     = { 0x2C };   // Arduino demo. The ESP-IDF demo writes 0x80 here.
+    const uint8_t vdvvrh[]  = { 0x01, 0xFF };
+    const uint8_t vrh[]     = { 0x13 };
+    const uint8_t vdv[]     = { 0x20 };
+    const uint8_t frame[]   = { 0x0F };
+    const uint8_t power[]   = { 0xA4, 0xA1 };
+    const uint8_t d6[]      = { 0xA1 };
+    const uint8_t gammaP[]  = { 0xD0, 0x0D, 0x14, 0x0D, 0x0D, 0x09, 0x38, 0x44,
+                                0x4E, 0x3A, 0x17, 0x18, 0x2F, 0x30 };
+    const uint8_t gammaN[]  = { 0xD0, 0x09, 0x0F, 0x08, 0x07, 0x14, 0x37, 0x44,
+                                0x4D, 0x38, 0x15, 0x16, 0x2C, 0x2E };
+    // Full Waveshare sequence after TFT_eSPI's reset/init, so every value
+    // TFT_eSPI's generic ST7789 init sent is overwritten.
+    const uint8_t madctl[]  = { 0x00 };   // RGB order, rotation 0
+    const uint8_t colmod[]  = { 0x05 };   // RGB565
+    tft->writecommand(0x11); delay(120);  // sleep out
+    waveshare_cmd(tft, 0x36, madctl,  sizeof(madctl));
+    waveshare_cmd(tft, 0x3A, colmod,  sizeof(colmod));
+    waveshare_cmd(tft, 0xB0, ramctrl, sizeof(ramctrl));
+    waveshare_cmd(tft, 0xB2, porch,   sizeof(porch));
+    waveshare_cmd(tft, 0xB7, gate,    sizeof(gate));
+    waveshare_cmd(tft, 0xBB, vcom,    sizeof(vcom));
+    waveshare_cmd(tft, 0xC0, lcm,     sizeof(lcm));
+    waveshare_cmd(tft, 0xC2, vdvvrh,  sizeof(vdvvrh));
+    waveshare_cmd(tft, 0xC3, vrh,     sizeof(vrh));
+    waveshare_cmd(tft, 0xC4, vdv,     sizeof(vdv));
+    waveshare_cmd(tft, 0xC6, frame,   sizeof(frame));
+    waveshare_cmd(tft, 0xD0, power,   sizeof(power));
+    waveshare_cmd(tft, 0xD6, d6,      sizeof(d6));
+    waveshare_cmd(tft, 0xE0, gammaP,  sizeof(gammaP));
+    waveshare_cmd(tft, 0xE1, gammaN,  sizeof(gammaN));
+    tft->writecommand(0x21);              // INVON, as in the demo
+    tft->writecommand(0x29); delay(20);   // display on
+}
+#endif
+
 /**
- * Initialize LVGL with TFT_eSPI display and FT6336 touch
- * TFT_eSPI is configured via build flags in platformio.ini
+ * Initialize LVGL with TFT_eSPI display and the board's touch controller.
+ * TFT_eSPI is configured via build flags in platformio.ini.
  */
 inline void lvgl_driver_init(void) {
     Serial.println("LVGL: Initializing driver...");
@@ -100,13 +164,20 @@ inline void lvgl_driver_init(void) {
     // Create and initialize TFT display
     _tft = new TFT_eSPI();
     _tft->init();
-    _tft->invertDisplay(true);  // Required for this ILI9341 display
+#if defined(BOARD_WAVESHARE)
+    waveshare_panel_setup(_tft);
+#endif
+    // Both panels need inversion on: the ES3C28P's ILI9341, and the
+    // Waveshare ST7789 (their demo sends command 0x21). TFT_eSPI's ST7789
+    // init already sends it; setting it again leaves it on.
+    _tft->invertDisplay(true);
     _tft->setRotation(_screenFlipped ? SCREEN_ROTATION_FLIPPED : SCREEN_ROTATION);
     _tft->fillScreen(TFT_BLACK);
 
-    // Setup backlight
-    pinMode(45, OUTPUT);
-    digitalWrite(45, HIGH);
+    // Backlight. TFT_BL is GPIO45 on the ES3C28P and GPIO5 on the Waveshare
+    // (wiki LCD_BL, demo EXAMPLE_LCD_BK_LIGHT_ON_LEVEL = 1).
+    pinMode(TFT_BL, OUTPUT);
+    digitalWrite(TFT_BL, HIGH);
 
     Serial.println("LVGL: TFT initialized");
 
@@ -141,11 +212,16 @@ inline void lvgl_driver_init(void) {
 
     Serial.printf("LVGL: Display driver registered (%dx%d)\n", SCREEN_WIDTH, SCREEN_HEIGHT);
 
-    // Touch controller (pins in display_config.h)
+    // Touch controller (pins in display_config.h). Portrait 240 x 320.
+#if defined(BOARD_WAVESHARE)
+    _touch = new WaveshareTouch(TOUCH_SDA, TOUCH_SCL, TOUCH_INT, TOUCH_RST, 240, 320);
+    _touch->begin();
+#else
     _touch = new FT6336(TOUCH_SDA, TOUCH_SCL, TOUCH_INT, TOUCH_RST, 240, 320);
     _touch->begin();
     _touch->setThreshold(40);  // Lower threshold = more sensitive (default ~80)
     Serial.println("LVGL: Touch initialized (FT6336, threshold=40)");
+#endif
 
     // Initialize touch driver
     lv_indev_drv_init(&_touch_drv);

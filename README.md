@@ -6,7 +6,9 @@ side by side from one controller, with a touchscreen to control them.
 - **Controller:** BigTreeTech SKR Pico V1.0 (RP2040). It drives the feeder
   motors, watches the part sensors, detects and clears jams, and stores
   the settings.
-- **Touchscreen:** LCDWiki ES3C28P 2.8" ESP32-S3 display. It shows each
+- **Touchscreen:** LCDWiki ES3C28P 2.8" ESP32-S3 display. A Waveshare
+  ESP32-S3-Touch-LCD-2.8 can be used instead; build that firmware with
+  `lcd_waveshare` (see the [build guide](docs/BUILD_GUIDE.md)). It shows each
   feeder's state, speed and rate, sounds alerts, and holds the settings.
 
 ## The feeders
@@ -91,6 +93,7 @@ Both firmware images build with [PlatformIO](https://platformio.org/):
 ```
 pio run -e controller -t upload
 pio run -e lcd -t upload
+pio run -e lcd_waveshare -t upload
 ```
 
 ## Repository layout
@@ -101,7 +104,8 @@ pio run -e lcd -t upload
 | `src/lcd_terminal.cpp` | touchscreen firmware (ESP32-S3) |
 | `src/feeder_protocol.h` | the UART protocol shared by both |
 | `src/*.h` | display, touch, audio and LVGL configuration for the touchscreen |
-| `lib/FT6336/` | touch controller driver |
+| `lib/FT6336/` | touch controller driver (ES3C28P) |
+| `lib/CST328/` | Waveshare touch drivers (CST328 and CST3530) |
 | `docs/` | build guide, parts list, printed parts, controller protocol, and the 3D viewer (`docs/viewer/`) |
 | `stl/` | 3D-printable parts plus DXF and STEP files for cut and machined parts, one folder per assembly |
 

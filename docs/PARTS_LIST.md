@@ -8,7 +8,8 @@ case or bullet feeder and twice for a dual setup.
 | Part | Qty | Notes | Link |
 |---|---|---|---|
 | BigTreeTech SKR Pico V1.0 | 1 | controller | [Amazon](https://a.co/d/09xAvw5X) |
-| LCDWiki ES3C28P 2.8" ESP32-S3 display | 1 | touchscreen | [Amazon](https://www.amazon.com/dp/B0FKG7WRWV) |
+| LCDWiki ES3C28P 2.8" ESP32-S3 display | 1 | touchscreen. Firmware env `lcd` | [Amazon](https://www.amazon.com/dp/B0FKG7WRWV) |
+| Waveshare ESP32-S3-Touch-LCD-2.8 | 1 | alternative to the ES3C28P (pick one). V1 (CST328) and V2 / Rev1.1 (CST3530) both use firmware env `lcd_waveshare`. 73.06 × 50.54 mm; measure it before expecting it to fit the printed lid. Wiring is in the [build guide](BUILD_GUIDE.md#waveshare-esp32-s3-touch-lcd-28) | [Waveshare](https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-2.8) |
 | 24 V fan | 1 | driver cooling, on FAN1; required for dual | [Amazon](https://www.amazon.com/dp/B0757RPCN9) |
 | WS2812 RGB LED | 1 | optional external status light | |
 
@@ -43,7 +44,7 @@ The case feeder uses the break-beam sensor; the bullet feeder uses the TCRT5000.
 | JST-XH 2.54 mm connector kit, pre-crimped wires | 1 | the SKR Pico uses JST-XH connectors; cables need to be made (see the [build guide](BUILD_GUIDE.md#connectors-and-cables)) | [Amazon](https://www.amazon.com/dp/B0H3WK88ZL) |
 | Motor cable, 4-pin | per feeder | | |
 | Sensor cable, 3-wire | per feeder | | |
-| Touchscreen cable, 4-wire | 1 | 5V, GND, TX, RX; comes with the touchscreen. Re-pin its Dupont end into a 5-pin JST-XH housing for the SKR Pico | |
+| Touchscreen cable, 4-wire | 1 | ES3C28P: 5V, GND, TX, RX; comes with that display. Re-pin its Dupont end into a 5-pin JST-XH housing for the SKR Pico. Waveshare: make the cable in the [build guide](BUILD_GUIDE.md#waveshare-esp32-s3-touch-lcd-28). Pico `5V` to VBus on the SH1.0 12-pin header, Pico `GND` to the SH1.0 UART header `GND` only, `IO0` to `RXD`, `IO1` to `TXD`. Leave UART `3V3` open | |
 | 470 Ω resistor | 2 | one in series with each touchscreen data wire | |
 | Clip-on ferrite core | 1 | on the touchscreen cable | |
 | USB-C cable | 1 | for flashing both boards | |
