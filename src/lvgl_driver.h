@@ -114,7 +114,7 @@ static void waveshare_cmd(TFT_eSPI* tft, uint8_t cmd, const uint8_t* data, size_
 }
 
 static void waveshare_panel_setup(TFT_eSPI* tft) {
-    const uint8_t ramctrl[] = { 0x00, 0xE8 };
+    const uint8_t ramctrl[] = { 0x00, 0xE0 };   // big-endian RGB565: TFT_eSPI pushColors swaps bytes. Waveshare 0xE8 sets ENDIAN=LSB for its unswapped LVGL buffer.
     const uint8_t porch[]   = { 0x0C, 0x0C, 0x00, 0x33, 0x33 };
     const uint8_t gate[]    = { 0x75 };
     const uint8_t vcom[]    = { 0x1A };
@@ -129,6 +129,13 @@ static void waveshare_panel_setup(TFT_eSPI* tft) {
                                 0x4E, 0x3A, 0x17, 0x18, 0x2F, 0x30 };
     const uint8_t gammaN[]  = { 0xD0, 0x09, 0x0F, 0x08, 0x07, 0x14, 0x37, 0x44,
                                 0x4D, 0x38, 0x15, 0x16, 0x2C, 0x2E };
+    // Full Waveshare sequence after TFT_eSPI's reset/init, so every value
+    // TFT_eSPI's generic ST7789 init sent is overwritten.
+    const uint8_t madctl[]  = { 0x00 };   // RGB order, rotation 0
+    const uint8_t colmod[]  = { 0x05 };   // RGB565
+    tft->writecommand(0x11); delay(120);  // sleep out
+    waveshare_cmd(tft, 0x36, madctl,  sizeof(madctl));
+    waveshare_cmd(tft, 0x3A, colmod,  sizeof(colmod));
     waveshare_cmd(tft, 0xB0, ramctrl, sizeof(ramctrl));
     waveshare_cmd(tft, 0xB2, porch,   sizeof(porch));
     waveshare_cmd(tft, 0xB7, gate,    sizeof(gate));
@@ -142,6 +149,8 @@ static void waveshare_panel_setup(TFT_eSPI* tft) {
     waveshare_cmd(tft, 0xD6, d6,      sizeof(d6));
     waveshare_cmd(tft, 0xE0, gammaP,  sizeof(gammaP));
     waveshare_cmd(tft, 0xE1, gammaN,  sizeof(gammaN));
+    tft->writecommand(0x21);              // INVON, as in the demo
+    tft->writecommand(0x29); delay(20);   // display on
 }
 #endif
 
