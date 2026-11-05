@@ -237,13 +237,16 @@ on a new controller).
 
 - **Beam hold:** when a part sits at the sensor, the motor stops (state
   `CASE HOLD` / `ROUND HOLD`) and restarts once the part is taken.
-- **Jams:** when the motor stalls, including a full stop (StallGuard reads
-  0), the feeder reverses for about 2 seconds, pauses, then feeds forward
-  again (state `JAM`).
-- **No parts while running:** if the motor is up to feed speed and the sensor
-  sees no part for 6 seconds, that is the same jam and the same reverse.
-  `n <ms>` changes the wait (`n 0` turns it off). The empty warning and the
-  auto shutoff still use their own timers.
+- **Jams:** the usual signal on this gearbox is the sensor, not StallGuard.
+  If the motor is at feed speed and no case has made a clean pass (blocked
+  for the confirm time, then clear for the clear time) for 3 seconds, the
+  feeder reverses, pauses, and feeds forward again. A flicker does not count
+  as a case. A case that stays in the sensor for 3 seconds is the same jam.
+  StallGuard is still checked and will reverse on its own if it ever trips.
+- **Empty hopper:** that looks like a jam, because no case arrives. After 3
+  of those reversals with no counted case in between, the feeder stops and
+  shows the same out-of-cases shutoff as the 2-minute idle stop. A counted
+  case resets that streak. `E <n>` changes it (`E 0` keeps reversing).
 - **Repeat jam:** if it jams again within 2 seconds of a recovery, it stops
   in **FAULT** with a **STALL** popup and an alarm. Clear the jam, then tap
   **RESUME**, or block that feeder's sensor twice within 2 seconds.
@@ -302,7 +305,7 @@ Enter. Feeder commands apply to the **selected** feeder; select it with `U`.
 
 | Command | What it does |
 |---|---|
-| `t 1` / `t 0` | telemetry: StallGuard reading, speed, state, DIAG and the no-case timer, twice a second |
+| `t 1` / `t 0` | telemetry: StallGuard, speed, state, DIAG, ms since the last counted case (`case:`), and the empty streak |
 | `e 1` / `e 0` | log every sensor block and clear |
 | `j 1` / `j 0` | jam detection on / off |
 | `s <n>` | set every jam threshold of the selected feeder to `n` (trips at or below `2 x n`, and a reading of 0 is a stall) |
@@ -312,7 +315,9 @@ Enter. Feeder commands apply to the **selected** feeder; select it with `U`.
 | `w <ms>` | repeat-jam window (a jam within it is a FAULT) |
 | `W <ms>` | how long a stall must last to count as a jam |
 | `d <ms>` | settle time after speeding up before jams are checked |
-| `n <ms>` | no-part jam time while running at feed speed (`0` off, default 6000; not saved) |
+| `n <ms>` | no counted case at feed speed before a jam (`0` off, default 3000; not saved) |
+| `p <ms>` | beam blocked this long before a jam (`0` off, default 3000; not saved) |
+| `E <n>` | after this many jam reversals with no counted case, stop and show empty (`0` off, default 3). Capital E |
 | `g <hz>` | no jam checks below this step rate |
 | `r <hz>` | reverse speed while clearing a jam |
 | `o <ms>` / `i <ms>` | empty-warning / auto-shutoff time (0 = off) |
@@ -337,7 +342,7 @@ and adjust:
 2. Load the feeder and run it at the speed in question. Note the lowest
    `SG` value during normal feeding.
 3. Hold the plate to make a jam and note the `SG` value while it is held.
-4. Pick a threshold whose double (`trip<`) sits midway between the two
+4. Pick a threshold whose double (`trip<=`) sits midway between the two
    numbers, set it with `s <n>`, turn detection back on (`j 1`) and test.
 
 `s` is not saved. To keep a new value, edit `CASE_BANDS` or `BULLET_BANDS`
@@ -353,7 +358,7 @@ controller.
 | Motor buzzes but does not turn | motor coil pairs (see [Motors](#motors)) |
 | Plate turns the wrong way | `M 1` for that feeder |
 | Feeder never holds, or holds all the time | sensor wiring; sensor polarity (`N 0` / `N 1`); check with `e 1` |
-| Jams are not detected | `?` shows `DIAG in use` and jam detection on. With `t 1`, a hard stall should show `SG:   0`, then a reverse. If the motor keeps turning but parts stop, `clear:` should reach the `n` time and reverse |
+| Jams are not detected | With `t 1`, `case:` climbs while the motor runs and no case completes a confirm-then-clear. At about 3 s it reverses. A flicker must not knock `case:` back to 0. `?` shows the no-case and beam-stuck times |
 | Jams reported that did not happen, or real jams missed | [Adjusting jam detection](#adjusting-jam-detection) |
 | Machine **APPLY** is greyed out | stop every feeder first |
 | Screen is upside down | Settings > Flip screen |
