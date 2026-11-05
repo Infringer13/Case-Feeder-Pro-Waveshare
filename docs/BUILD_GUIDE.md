@@ -237,8 +237,17 @@ on a new controller).
 
 - **Beam hold:** when a part sits at the sensor, the motor stops (state
   `CASE HOLD` / `ROUND HOLD`) and restarts once the part is taken.
-- **Jams:** when the motor stalls, the feeder reverses for about 2 seconds,
-  pauses, then feeds forward again (state `JAM`).
+- **Jams:** the usual signal on this gearbox is the sensor, not StallGuard.
+  A case counts when the beam has been blocked for about 40 ms (`c`). That
+  resets the no-case clock. The next case can count after the beam has been
+  clear for about 50 ms (`C`). If the motor is at feed speed and no case is
+  counted for 8 seconds, the feeder reverses, pauses, and feeds forward
+  again. A case that stays in the sensor for 3 seconds is the same jam.
+  StallGuard is still checked and will reverse on its own if it ever trips.
+- **Empty hopper:** that looks like a jam, because no case arrives. After 5
+  of those reversals with no counted case in between, the feeder stops and
+  shows the same out-of-cases shutoff as the 2-minute idle stop. A counted
+  case resets that streak. `E <n>` changes it (`E 0` keeps reversing).
 - **Repeat jam:** if it jams again within 2 seconds of a recovery, it stops
   in **FAULT** with a **STALL** popup and an alarm. Clear the jam, then tap
   **RESUME**, or block that feeder's sensor twice within 2 seconds.
@@ -297,16 +306,20 @@ Enter. Feeder commands apply to the **selected** feeder; select it with `U`.
 
 | Command | What it does |
 |---|---|
-| `t 1` / `t 0` | telemetry: StallGuard reading, speed and state twice a second |
+| `t 1` / `t 0` | telemetry: StallGuard, speed, state, DIAG, ms since the last counted case (`case:`), and the empty streak |
 | `e 1` / `e 0` | log every sensor block and clear |
 | `j 1` / `j 0` | jam detection on / off |
-| `s <n>` | set every jam threshold of the selected feeder to `n` (trips below `2 x n`) |
+| `s <n>` | set every jam threshold of the selected feeder to `n` (trips at or below `2 x n`, and a reading of 0 is a stall) |
 | `v <hz>` / `V <hz>` | maximum / minimum step rate (100 % / 0 % speed) |
 | `b <ms>` / `B <ms>` | sensor time before a hold / clear time before resuming |
-| `C <ms>` | sensor clear time before the next part counts |
+| `c <ms>` | how long the beam must stay blocked before a case counts (default 40) |
+| `C <ms>` | how long the beam must stay clear before the next case can count (default 50) |
 | `w <ms>` | repeat-jam window (a jam within it is a FAULT) |
 | `W <ms>` | how long a stall must last to count as a jam |
 | `d <ms>` | settle time after speeding up before jams are checked |
+| `n <ms>` | no counted case at feed speed before a jam (`0` off, default 8000; not saved) |
+| `p <ms>` | beam blocked this long before a jam (`0` off, default 3000; not saved) |
+| `E <n>` | after this many jam reversals with no counted case, stop and show empty (`0` off, default 5). Capital E |
 | `g <hz>` | no jam checks below this step rate |
 | `r <hz>` | reverse speed while clearing a jam |
 | `o <ms>` / `i <ms>` | empty-warning / auto-shutoff time (0 = off) |
@@ -318,16 +331,20 @@ Enter. Feeder commands apply to the **selected** feeder; select it with `U`.
 
 Jam detection compares the motor driver's StallGuard reading with a
 threshold for the current speed: the reading drops when the plate is
-loaded, and a stall is flagged below **2 x threshold**. The built-in
-thresholds suit the standard case and bullet feeders. If a feeder reports
-jams that did not happen, or misses real ones, measure and adjust:
+loaded, and a stall is flagged at or below **2 x threshold**. A reading of
+**0** means the motor has stopped dead. That counts as a stall whenever the
+feeder is being commanded to run above the minimum jam speed. The 51:1
+gearbox hides ordinary load, so a jam often shows up as 0 rather than as a
+reading just under the threshold. The built-in thresholds are unchanged.
+If a feeder reports jams that did not happen, or misses real ones, measure
+and adjust:
 
 1. Select the feeder (`U 0` / `U 1`), turn jam detection off (`j 0`) and
    telemetry on (`t 1`).
 2. Load the feeder and run it at the speed in question. Note the lowest
    `SG` value during normal feeding.
 3. Hold the plate to make a jam and note the `SG` value while it is held.
-4. Pick a threshold whose double (`trip<`) sits midway between the two
+4. Pick a threshold whose double (`trip<=`) sits midway between the two
    numbers, set it with `s <n>`, turn detection back on (`j 1`) and test.
 
 `s` is not saved. To keep a new value, edit `CASE_BANDS` or `BULLET_BANDS`
@@ -343,7 +360,7 @@ controller.
 | Motor buzzes but does not turn | motor coil pairs (see [Motors](#motors)) |
 | Plate turns the wrong way | `M 1` for that feeder |
 | Feeder never holds, or holds all the time | sensor wiring; sensor polarity (`N 0` / `N 1`); check with `e 1` |
-| Jams are not detected | `?` shows `DIAG in use`; DIAG jumper fitted |
+| Jams are not detected | With `t 1`, each real case prints `case counted` and `case:` drops. A pass shorter than `c` does not count. With no cases, `case:` reaches about 8 s and the feeder reverses |
 | Jams reported that did not happen, or real jams missed | [Adjusting jam detection](#adjusting-jam-detection) |
 | Machine **APPLY** is greyed out | stop every feeder first |
 | Screen is upside down | Settings > Flip screen |
