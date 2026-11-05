@@ -34,7 +34,9 @@ side by side from one controller, with a touchscreen to control them.
 ### Controller case
 
 The SKR Pico and the touchscreen share one case, with the power switch,
-power jack and driver fan on its end panel.
+power jack and driver fan on its end panel. The Waveshare ESP32-S3 2.8"
+lid, clamp bars, and wiring diagram are in
+[`stl/waveshare-display`](stl/waveshare-display).
 
 <p>
   <img src="docs/images/controller-case-front.png" width="24%" alt="Controller case, front: touchscreen, power switch, power jack and fan">

@@ -146,6 +146,17 @@ Holds the SKR Pico and the touchscreen.
 | `CFBF Pico Lid.stl` | 118 x 90 x 22 | SKR Pico side |
 | `CFBF Speaker Housing.stl` | 32 x 47 x 13 | |
 
+## Waveshare display ([`stl/waveshare-display`](../stl/waveshare-display))
+
+Lid and clamp bars for a Waveshare ESP32-S3-Touch-LCD-2.8 in the controller
+case. The wiring diagram, generator, and preview are in that folder; see
+its [README](../stl/waveshare-display/README.md).
+
+| File | Size (mm) | Notes |
+|---|---|---|
+| `CFBF LCD Lid Waveshare Flush v3.stl` | 118 x 90 x 21 | controller-case lid that holds the display flush. The glass sits in an outside pocket |
+| `Waveshare Rear Bar x2.stl` | 66.5 x 19 x 3 | print 2. The file is the pair of rear bars that clamp the board |
+
 ## Case arm mount ([`stl/case-arm-mount`](../stl/case-arm-mount))
 
 The arm that attaches the controller case to the case feeder or the bullet
