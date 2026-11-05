@@ -59,9 +59,11 @@ static constexpr uint32_t RAMP_PERIOD_MS    = 10;
 static constexpr uint32_t JAM_PAUSE_MS      = 400;
 static constexpr uint32_t STALL_CLEAR_MS    = 150;
 static constexpr uint32_t SG_SAMPLE_MS      = 100;
-static constexpr uint32_t NO_NEW_CASE_MS    = 3000;   // no counted case at feed speed -> jam
+static constexpr uint32_t NO_NEW_CASE_MS    = 8000;   // no counted case at feed speed -> jam
 static constexpr uint32_t BEAM_STUCK_MS     = 3000;   // debounced block this long -> jam
-static constexpr uint8_t  EMPTY_AFTER_JAMS  = 3;      // then idle shutoff instead of another reverse
+static constexpr uint8_t  EMPTY_AFTER_JAMS  = 5;      // then idle shutoff instead of another reverse
+static constexpr uint16_t COUNT_CONFIRM_MS  = 40;     // block must last this long to count
+static constexpr uint16_t COUNT_REARM_MS    = 50;     // clear this long before the next count
 static constexpr uint8_t  TMC2209_VERSION   = 0x21;   // IOIN version; a failed UART read is 0
 static constexpr uint16_t SG_RESULT_MASK    = 0x3FF;
 static constexpr uint8_t  BEAM_RESET_BREAKS = 2;
@@ -195,7 +197,7 @@ struct Feeder {
     uint32_t  accelHzPerSec, startupAccelHzPerSec, decelHzPerSec;
     uint32_t  jamReverseHz, jamMinSpeedHz;
     uint16_t  jamRepeatWindowMs, stallConfirmMs, stallSettleMs;
-    uint16_t  beamConfirmMs, beamClearMs, countClearMs;
+    uint16_t  beamConfirmMs, beamClearMs, countConfirmMs, countClearMs;
     uint32_t  idleWarnMs, idleShutoffMs;
     StallBand bands[MAX_BANDS];
     uint8_t   numBands;
@@ -215,7 +217,7 @@ struct Feeder {
     // beam / count / idle
     bool      beamActiveLow;
     bool      beamBlocked, rawBeam;
-    uint32_t  beamBrokenSince, beamClearedSince, beamClearSince;
+    uint32_t  beamBrokenSince, beamClearedSince, beamClearSince, countBlockSince;
     bool      countArmed, prevBeamRunning;
     uint16_t  count;
     uint32_t  lastFedTime;
@@ -292,7 +294,8 @@ static void feederInit(Feeder& f, uint8_t index, const FeederConfig* cfg, TMC220
     f.stallSettleMs  = 300;
     f.beamConfirmMs  = cfg->beamConfirmMs;
     f.beamClearMs    = cfg->beamClearMs;
-    f.countClearMs   = 30;
+    f.countConfirmMs = COUNT_CONFIRM_MS;
+    f.countClearMs   = COUNT_REARM_MS;
     f.idleWarnMs     = 30000;
     f.idleShutoffMs  = 120000;
     f.numBands = cfg->numBands;
@@ -486,6 +489,24 @@ static bool checkBeamResetGesture(Feeder& f) {
     return done;
 }
 
+// One case: the beam has been blocked through the short confirm. Resets the
+// no-case jam clock and the empty streak. The hold's long clear is not required.
+static void noteCaseCounted(Feeder& f) {
+    f.countArmed = false;
+    f.count++;
+    f.lastCountedCase = millis();
+    f.atFeedSince = 0;
+    f.jamStreak = 0;
+    f.lastFedTime = millis();
+    f.idleWarnActive = false;
+    f.idleWarnDismissed = false;
+    uint8_t evt[3];
+    memcpy(evt, &f.count, 2);
+    evt[2] = f.index;
+    writeFrame(EVT_COUNT, evt, 3);
+    Serial.printf("%c case counted %u\n", f.cfg->tag, f.count);
+}
+
 static void serviceBeam(Feeder& f) {
     const bool blocked = readBeamRaw(f);
     if (beamLogOn) {
@@ -502,31 +523,22 @@ static void serviceBeam(Feeder& f) {
     f.edgePrev = blocked;
     f.rawBeam  = blocked;
 
-    // Count each part once, on the leading edge of a break.
-    if (blocked && !f.prevBeamRunning) {
-        f.lastFedTime       = millis();
-        f.idleWarnActive    = false;
-        f.idleWarnDismissed = false;
-        if (f.countArmed) {
-            f.countArmed = false;
-            f.count++;
-            uint8_t evt[3];
-            memcpy(evt, &f.count, 2);
-            evt[2] = f.index;
-            writeFrame(EVT_COUNT, evt, 3);
-        }
-    }
-    if (!blocked) {
+    // Count on a short confirmed block. A fast case never sits still for the
+    // hold's clear time, so that long debounce must not gate the count.
+    // Re-arm after a short clear so the next case can count.
+    if (blocked) {
+        if (f.countBlockSince == 0) f.countBlockSince = millis();
+        if (f.countArmed && millis() - f.countBlockSince >= f.countConfirmMs) noteCaseCounted(f);
+        f.beamClearSince = 0;
+    } else {
+        f.countBlockSince = 0;
         if (f.beamClearSince == 0) f.beamClearSince = millis();
         if (!f.countArmed && millis() - f.beamClearSince >= f.countClearMs) f.countArmed = true;
-    } else {
-        f.beamClearSince = 0;
     }
     f.prevBeamRunning = blocked;
 
     // "Blocked" (hold the motor) only after a sustained break, and released
-    // only after a sustained clear. That same pair is what counts as a case
-    // for jam detection.
+    // only after a sustained clear. This is separate from counting.
     const bool wasBlocked = f.beamBlocked;
     if (blocked) {
         f.beamClearedSince = 0;
@@ -543,17 +555,12 @@ static void serviceBeam(Feeder& f) {
         }
     }
 
-    // A counted case is a confirmed block followed by a confirmed clear.
-    // A flicker never sets beamBlocked, so it cannot reset the jam clocks.
     if (f.beamBlocked && !wasBlocked) {
         // Clock starts at the beginning of this unbroken block, so a flicker
         // that never confirmed does not count and does not reset it.
         f.beamBlockedSince = f.beamBrokenSince != 0 ? f.beamBrokenSince : millis();
     } else if (!f.beamBlocked && wasBlocked) {
         f.beamBlockedSince = 0;
-        f.lastCountedCase = millis();
-        f.atFeedSince = 0;
-        f.jamStreak = 0;
     }
 }
 
@@ -1203,7 +1210,7 @@ static bool setMachine(uint8_t mask, const char* source) {
             if (!initDriver(f)) Serial.printf("%c motor driver not ready - retrying\n", f.cfg->tag);
             f.rawBeam = f.prevBeamRunning = f.prevBeamState = readBeamRaw(f);
             f.beamBlocked = false;
-            f.beamBrokenSince = f.beamClearedSince = f.beamBlockedSince = 0;
+            f.beamBrokenSince = f.beamClearedSince = f.beamBlockedSince = f.countBlockSince = 0;
             f.lastFedTime = millis();
         } else if (!want) {
             f.enabled = false;
@@ -1258,9 +1265,11 @@ static void printFeeder(Feeder& f) {
                   f.beamStuckMs == 0 ? " (off)" : "");
     Serial.printf("  empty after:  %u jam recoveries with no case (streak %u)%s\n",
                   f.emptyAfterJams, f.jamStreak, f.emptyAfterJams == 0 ? " (off)" : "");
-    Serial.printf("  beam:         %s (raw %s), blocked reads %s, confirm/clear %u/%u ms\n",
+    Serial.printf("  beam:         %s (raw %s), blocked reads %s, hold confirm/clear %u/%u ms\n",
                   f.beamBlocked ? "BLOCKED" : "clear", f.rawBeam ? "blocked" : "clear",
                   f.beamActiveLow ? "LOW" : "HIGH", f.beamConfirmMs, f.beamClearMs);
+    Serial.printf("  count:        confirm %u ms, re-arm %u ms, total %u\n",
+                  f.countConfirmMs, f.countClearMs, f.count);
     Serial.printf("  empty warn / shutoff: %lu / %lu ms, count %u, run requested %s\n",
                   (unsigned long)f.idleWarnMs, (unsigned long)f.idleShutoffMs, f.count,
                   f.runRequested ? "yes" : "no");
@@ -1275,7 +1284,7 @@ static void printStatus() {
     Serial.printf("  telemetry / beam log: %s / %s\n", telemetryOn ? "on" : "off", beamLogOn ? "on" : "off");
     for (Feeder& f : feeders) if (f.enabled) printFeeder(f);
     Serial.println("setup:    ? | K <1 case, 2 bullet, 3 dual> | U <0 case, 1 bullet> | R <0/1> | N <0/1> | M <0/1>");
-    Serial.println("advanced: t <0/1> | e <0/1> | j <0/1> | s | v | V | b | B | C | w | W | d | n | p | E | i | o | g | r | a | A | D | T | F");
+    Serial.println("advanced: t <0/1> | e <0/1> | j <0/1> | s | v | V | b | B | c | C | w | W | d | n | p | E | i | o | g | r | a | A | D | T | F");
 }
 
 static void handleSerial() {
@@ -1321,7 +1330,7 @@ static void handleSerial() {
                     persist.beamActiveHigh[f.index] = f.beamActiveLow ? 0 : 1;
                     persistSave();
                     f.rawBeam = f.prevBeamRunning = f.prevBeamState = readBeamRaw(f);
-                    f.beamBrokenSince = f.beamClearedSince = f.beamBlockedSince = 0;
+                    f.beamBrokenSince = f.beamClearedSince = f.beamBlockedSince = f.countBlockSince = 0;
                     f.beamBlocked = false;
                     Serial.printf("%c beam: blocked reads %s\n", tg, f.beamActiveLow ? "LOW" : "HIGH");
                     break;
@@ -1357,7 +1366,8 @@ static void handleSerial() {
                     break;
                 case 'b': if (val >= 0 && val <= 10000) { f.beamConfirmMs = (uint16_t)val; Serial.printf("%c beam confirm = %ld ms\n", tg, val); } break;
                 case 'B': if (val >= 0 && val <= 10000) { f.beamClearMs = (uint16_t)val;   Serial.printf("%c beam clear = %ld ms\n", tg, val); } break;
-                case 'C': if (val >= 0 && val <= 2000)  { f.countClearMs = (uint16_t)val;  Serial.printf("%c count re-arm = %ld ms\n", tg, val); } break;
+                case 'c': if (val >= 0 && val <= 2000)  { f.countConfirmMs = (uint16_t)val; Serial.printf("%c count confirm = %ld ms\n", tg, val); } break;
+                case 'C': if (val >= 0 && val <= 2000)  { f.countClearMs = (uint16_t)val;   Serial.printf("%c count re-arm = %ld ms\n", tg, val); } break;
                 case 'w': if (val >= 100 && val <= 60000) { f.jamRepeatWindowMs = (uint16_t)val; Serial.printf("%c repeat-jam window = %ld ms\n", tg, val); } break;
                 case 'W': if (val >= 50 && val <= 5000) { f.stallConfirmMs = (uint16_t)val; Serial.printf("%c stall confirm = %ld ms\n", tg, val); } break;
                 case 'd': if (val >= 0 && val <= 5000)  { f.stallSettleMs = (uint16_t)val;  Serial.printf("%c stall settle = %ld ms\n", tg, val); } break;
