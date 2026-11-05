@@ -50,6 +50,19 @@ Outer wall (either bowl):
 | `ABS Outer v5.stl` | 387 x 317 x 420 | shape of the outer wall, cut from 1/16" ABS sheet; not printed |
 | `ABS Outer v5 Flat.dxf` | 932 x 250 (flat) | cutting pattern for the outer wall, full size in millimetres, with the 12 screw holes along the bottom edge |
 
+### Wiper
+
+Printed PETG outer wall and the 9mm case wiper that mounts on it. The
+generators are [`scripts/case_wiper.py`](../stl/case-feeder/scripts/case_wiper.py)
+and [`scripts/make_slots_v2.py`](../stl/case-feeder/scripts/make_slots_v2.py).
+
+| File | Size (mm) | Notes |
+|---|---|---|
+| `case_wiper.stl` | 18 x 50 x 36 | case wiper/kicker v7 for 9mm brass. Mounts with M4×8 screws threading directly into 3.8 mm holes (no heat-set inserts). Prints flat top-down with no supports |
+| `case_wiper.step` | 18 x 50 x 36 | the same wiper as a STEP model |
+| `drill_template.stl` | 4 x 50 x 36 | drill template with 4.5 mm M4 clearance holes |
+| `Case Feeder Outer Wall PETG 3.2mm - wiper slots v2.stl` | 332 x 346 x 250 | outer bowl wall with two wiper adjustment slots, 4.5 mm wide with ±2 mm of height travel. The slot nearest the opening is about 80 mm from the opening edge, with its center about 60 mm up from the bottom of the wall |
+
 ### Base and mounting
 
 | File | Size (mm) | Notes |
@@ -132,6 +145,17 @@ Holds the SKR Pico and the touchscreen.
 | `CFBF LCD Lid.stl` | 118 x 90 x 21 | touchscreen side |
 | `CFBF Pico Lid.stl` | 118 x 90 x 22 | SKR Pico side |
 | `CFBF Speaker Housing.stl` | 32 x 47 x 13 | |
+
+## Waveshare display ([`stl/waveshare-display`](../stl/waveshare-display))
+
+Lid and clamp bars for a Waveshare ESP32-S3-Touch-LCD-2.8 in the controller
+case. The wiring diagram, generator, and preview are in that folder; see
+its [README](../stl/waveshare-display/README.md).
+
+| File | Size (mm) | Notes |
+|---|---|---|
+| `CFBF LCD Lid Waveshare Flush v3.stl` | 118 x 90 x 21 | controller-case lid that holds the display flush. The glass sits in an outside pocket |
+| `Waveshare Rear Bar x2.stl` | 66.5 x 19 x 3 | print 2. The file is the pair of rear bars that clamp the board |
 
 ## Case arm mount ([`stl/case-arm-mount`](../stl/case-arm-mount))
 

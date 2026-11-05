@@ -34,7 +34,9 @@ side by side from one controller, with a touchscreen to control them.
 ### Controller case
 
 The SKR Pico and the touchscreen share one case, with the power switch,
-power jack and driver fan on its end panel.
+power jack and driver fan on its end panel. The Waveshare ESP32-S3 2.8"
+lid, clamp bars, and wiring diagram are in
+[`stl/waveshare-display`](stl/waveshare-display).
 
 <p>
   <img src="docs/images/controller-case-front.png" width="24%" alt="Controller case, front: touchscreen, power switch, power jack and fan">
@@ -92,6 +94,21 @@ Both firmware images build with [PlatformIO](https://platformio.org/):
 pio run -e controller -t upload
 pio run -e lcd -t upload
 ```
+
+## Case wiper
+
+The 9mm case wiper and the outer wall it mounts on are in
+[`stl/case-feeder`](stl/case-feeder). The Python generators that produced
+them are in [`stl/case-feeder/scripts`](stl/case-feeder/scripts).
+
+- `case_wiper.stl` and `case_wiper.step`: the case wiper/kicker v7 for 9mm
+  brass. It mounts with M4×8 screws threading directly into 3.8 mm holes
+  (no heat-set inserts) and prints flat top-down with no supports.
+- `drill_template.stl`: a drill template with 4.5 mm M4 clearance holes.
+- `Case Feeder Outer Wall PETG 3.2mm - wiper slots v2.stl`: the outer bowl
+  wall with two wiper adjustment slots. They are 4.5 mm wide with ±2 mm of
+  height travel. The slot nearest the opening is about 80 mm from the
+  opening edge, with its center about 60 mm up from the bottom of the wall.
 
 ## Repository layout
 
