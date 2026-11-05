@@ -237,8 +237,13 @@ on a new controller).
 
 - **Beam hold:** when a part sits at the sensor, the motor stops (state
   `CASE HOLD` / `ROUND HOLD`) and restarts once the part is taken.
-- **Jams:** when the motor stalls, the feeder reverses for about 2 seconds,
-  pauses, then feeds forward again (state `JAM`).
+- **Jams:** when the motor stalls, including a full stop (StallGuard reads
+  0), the feeder reverses for about 2 seconds, pauses, then feeds forward
+  again (state `JAM`).
+- **No parts while running:** if the motor is up to feed speed and the sensor
+  sees no part for 6 seconds, that is the same jam and the same reverse.
+  `n <ms>` changes the wait (`n 0` turns it off). The empty warning and the
+  auto shutoff still use their own timers.
 - **Repeat jam:** if it jams again within 2 seconds of a recovery, it stops
   in **FAULT** with a **STALL** popup and an alarm. Clear the jam, then tap
   **RESUME**, or block that feeder's sensor twice within 2 seconds.
@@ -297,16 +302,17 @@ Enter. Feeder commands apply to the **selected** feeder; select it with `U`.
 
 | Command | What it does |
 |---|---|
-| `t 1` / `t 0` | telemetry: StallGuard reading, speed and state twice a second |
+| `t 1` / `t 0` | telemetry: StallGuard reading, speed, state, DIAG and the no-case timer, twice a second |
 | `e 1` / `e 0` | log every sensor block and clear |
 | `j 1` / `j 0` | jam detection on / off |
-| `s <n>` | set every jam threshold of the selected feeder to `n` (trips below `2 x n`) |
+| `s <n>` | set every jam threshold of the selected feeder to `n` (trips at or below `2 x n`, and a reading of 0 is a stall) |
 | `v <hz>` / `V <hz>` | maximum / minimum step rate (100 % / 0 % speed) |
 | `b <ms>` / `B <ms>` | sensor time before a hold / clear time before resuming |
 | `C <ms>` | sensor clear time before the next part counts |
 | `w <ms>` | repeat-jam window (a jam within it is a FAULT) |
 | `W <ms>` | how long a stall must last to count as a jam |
 | `d <ms>` | settle time after speeding up before jams are checked |
+| `n <ms>` | no-part jam time while running at feed speed (`0` off, default 6000; not saved) |
 | `g <hz>` | no jam checks below this step rate |
 | `r <hz>` | reverse speed while clearing a jam |
 | `o <ms>` / `i <ms>` | empty-warning / auto-shutoff time (0 = off) |
@@ -318,9 +324,13 @@ Enter. Feeder commands apply to the **selected** feeder; select it with `U`.
 
 Jam detection compares the motor driver's StallGuard reading with a
 threshold for the current speed: the reading drops when the plate is
-loaded, and a stall is flagged below **2 x threshold**. The built-in
-thresholds suit the standard case and bullet feeders. If a feeder reports
-jams that did not happen, or misses real ones, measure and adjust:
+loaded, and a stall is flagged at or below **2 x threshold**. A reading of
+**0** means the motor has stopped dead. That counts as a stall whenever the
+feeder is being commanded to run above the minimum jam speed. The 51:1
+gearbox hides ordinary load, so a jam often shows up as 0 rather than as a
+reading just under the threshold. The built-in thresholds are unchanged.
+If a feeder reports jams that did not happen, or misses real ones, measure
+and adjust:
 
 1. Select the feeder (`U 0` / `U 1`), turn jam detection off (`j 0`) and
    telemetry on (`t 1`).
@@ -343,7 +353,7 @@ controller.
 | Motor buzzes but does not turn | motor coil pairs (see [Motors](#motors)) |
 | Plate turns the wrong way | `M 1` for that feeder |
 | Feeder never holds, or holds all the time | sensor wiring; sensor polarity (`N 0` / `N 1`); check with `e 1` |
-| Jams are not detected | `?` shows `DIAG in use`; DIAG jumper fitted |
+| Jams are not detected | `?` shows `DIAG in use` and jam detection on. With `t 1`, a hard stall should show `SG:   0`, then a reverse. If the motor keeps turning but parts stop, `clear:` should reach the `n` time and reverse |
 | Jams reported that did not happen, or real jams missed | [Adjusting jam detection](#adjusting-jam-detection) |
 | Machine **APPLY** is greyed out | stop every feeder first |
 | Screen is upside down | Settings > Flip screen |

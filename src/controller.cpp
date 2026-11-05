@@ -59,6 +59,9 @@ static constexpr uint32_t RAMP_PERIOD_MS    = 10;
 static constexpr uint32_t JAM_PAUSE_MS      = 400;
 static constexpr uint32_t STALL_CLEAR_MS    = 150;
 static constexpr uint32_t SG_SAMPLE_MS      = 100;
+static constexpr uint32_t NO_CASE_JAM_MS    = 6000;   // no part at feed speed -> jam
+static constexpr uint8_t  TMC2209_VERSION   = 0x21;   // IOIN version; a failed UART read is 0
+static constexpr uint16_t SG_RESULT_MASK    = 0x3FF;
 static constexpr uint8_t  BEAM_RESET_BREAKS = 2;
 static constexpr uint32_t BEAM_RESET_TIMEOUT_MS = 2000;
 static constexpr uint32_t STATUS_PERIOD_MS  = 500;
@@ -71,9 +74,12 @@ static constexpr uint8_t  LED_BRIGHTNESS    = 40;
 static constexpr uint8_t  NUM_FEEDERS       = 2;
 static constexpr uint8_t  MAX_BANDS         = 6;
 
-// Jam detection threshold by speed. The TMC2209 flags a stall when its
-// StallGuard reading drops below 2 x SGTHRS; the reading rises with speed, so
-// each speed range gets its own threshold.
+// Jam detection threshold by speed. The TMC2209 flags a stall when
+// SG_RESULT <= 2 x SGTHRS. The reading rises with speed, so each speed range
+// gets its own threshold. The numbers are the tuned values for these feeders.
+// A 51:1 gearbox hides ordinary load, so a real jam often does not walk down
+// through the bands: the rotor stops and SG_RESULT reads 0. That 0 is a stall
+// (see isStalled). Do not raise these thresholds to "chase" a 0.
 struct StallBand {
     uint32_t speedMinHz;
     uint8_t  threshold;   // SGTHRS
@@ -224,6 +230,11 @@ struct Feeder {
     uint16_t  sgResult, sgWindowMin, sgWindowMax;
     int8_t    currentStallBand;
     uint8_t   appliedSgThreshold;
+    bool      sgSampleValid;     // last SG_RESULT reply checked out
+    bool      sgZeroIsStall;     // that reply was 0 while stepping at speed
+    bool      diagFromChip;      // TMC2209 IOIN.DIAG, same sample
+    bool      noCaseRecovery;    // this reverse came from the beam timer
+    uint32_t  noCaseJamMs, noCaseSince;
 
     // health / temperature
     uint32_t  lastDriverCheck, lastSgRead;
@@ -288,6 +299,7 @@ static void feederInit(Feeder& f, uint8_t index, const FeederConfig* cfg, TMC220
     f.jamDetect = true;
     f.currentStallBand = -1;
     f.sgWindowMin = 0xFFFF;
+    f.noCaseJamMs = NO_CASE_JAM_MS;
 }
 
 // ============================================================
@@ -387,11 +399,57 @@ static void serviceStallThreshold(Feeder& f) {
     f.drv->SGTHRS(f.appliedSgThreshold);
 }
 
-// A stall shows either on the DIAG line (instant) or in the polled reading.
-static bool isStalled(Feeder& f) {
-    const uint16_t trip = (uint16_t)f.appliedSgThreshold * 2U;
-    if (f.sgResult > 0 && f.sgResult < trip) return true;
+// Live DIAG pin. The TMC2209 DIAG is active-high and open-drain, so the Pico
+// pin is pulled up; a stall releases the pin and it reads HIGH.
+static bool diagPinHigh(const Feeder& f) {
     return f.diagUsable && digitalRead(f.cfg->pinDiag) == HIGH;
+}
+
+// A stall is SG_RESULT <= 2 x SGTHRS, which is the compare the chip uses for
+// DIAG. A fully stopped rotor reads 0. That used to be skipped (sgResult > 0),
+// so the motor could sit stalled, DIAG could stay low or only pulse, and the
+// feeder never reversed. 0 counts only after a real reply taken while steps
+// are being issued above the jam speed: a dead UART read is also 0, and a 0
+// while ramping is StallGuard with no back-EMF yet, not a jam.
+static bool isStalled(const Feeder& f) {
+    const uint16_t trip = (uint16_t)f.appliedSgThreshold * 2U;
+    if (f.sgZeroIsStall) return true;
+    if (f.sgSampleValid && f.sgResult > 0 && f.sgResult <= trip) return true;
+    if (f.diagFromChip) return true;
+    return diagPinHigh(f);
+}
+
+// Read StallGuard. On a 0, check IOIN so a failed UART transaction (also 0)
+// is not stored as a stall. Version 0x21 is the TMC2209 identity in that reply.
+static void sampleStallGuard(Feeder& f) {
+    const uint16_t sg = f.drv->SG_RESULT() & SG_RESULT_MASK;
+    if (sg != 0) {
+        f.sgResult = sg;
+        f.sgSampleValid = true;
+        f.sgZeroIsStall = false;
+        f.diagFromChip = false;
+    } else {
+        const uint32_t ioin = f.drv->IOIN();
+        const bool alive = ((ioin >> 24) & 0xFF) == TMC2209_VERSION;
+        const bool atSpeed = f.appliedHz > f.jamMinSpeedHz;
+        if (!alive) {
+            f.sgSampleValid = false;
+            f.sgZeroIsStall = false;
+            f.diagFromChip = false;
+            return;
+        }
+        f.sgResult = 0;
+        f.sgSampleValid = true;
+        f.sgZeroIsStall = atSpeed;
+        f.diagFromChip = atSpeed && ((ioin & (1UL << 4)) != 0);
+    }
+    if (f.sgResult < f.sgWindowMin) f.sgWindowMin = f.sgResult;
+    if (f.sgResult > f.sgWindowMax) f.sgWindowMax = f.sgResult;
+}
+
+// Commanded feed rate, ramp finished, and fast enough for jam checks.
+static bool runningAtFeedSpeed(const Feeder& f) {
+    return f.targetHz > f.jamMinSpeedHz && f.appliedHz >= f.targetHz;
 }
 
 // ============================================================
@@ -721,8 +779,9 @@ static bool initDriver(Feeder& f) {
         return false;
     }
     f.drv->GSTAT(0x07);
-    // DIAG idles LOW. HIGH at standstill means the DIAG jumper is missing;
-    // jam detection then relies on the polled reading alone.
+    // DIAG idles LOW (the driver sinks the open-drain pin). HIGH at
+    // standstill means the jumper is missing and the pull-up is all that's
+    // there; jam detection then relies on the polled reading alone.
     const bool diagWas = f.diagUsable;
     f.diagUsable = digitalRead(f.cfg->pinDiag) == LOW;
     if (!f.diagUsable) {
@@ -817,6 +876,8 @@ static void serviceTemps() {
 // ============================================================
 static void enterState(Feeder& f, State next) {
     if (f.state == next) return;
+    // The no-case clock only counts continuous time at feed speed.
+    if (f.state == STATE_RUNNING) f.noCaseSince = 0;
     f.state = next;
     f.stateSince = millis();
 }
@@ -833,7 +894,7 @@ static void goFault(Feeder& f) {
     sendAlert(f, ALERT_JAM_FAULT);
 }
 
-static void startJamReverse(Feeder& f) {
+static void startJamReverse(Feeder& f, bool noCase) {
     stopImmediately(f);
     setDirection(f, false);
     motorEnable(f, true);
@@ -841,7 +902,26 @@ static void startJamReverse(Feeder& f) {
     f.targetHz = f.jamReverseHz;
     f.stallActive = false;
     f.stallTimer = 0;
+    f.sgZeroIsStall = false;
+    f.diagFromChip = false;
+    f.noCaseSince = 0;
+    f.noCaseRecovery = noCase;
     enterState(f, STATE_JAM_REVERSE);
+}
+
+// Shared path for a confirmed stall and for the no-case backup. A second jam
+// inside the repeat window is still a FAULT.
+static void beginJamRecovery(Feeder& f, const char* reason, bool noCase) {
+    const uint32_t now = millis();
+    f.noCaseSince = 0;
+    if (f.lastRecoveryEnd != 0 && now - f.lastRecoveryEnd < f.jamRepeatWindowMs) {
+        Serial.printf("%c %s - jammed again %lu ms after recovery - FAULT\n", f.cfg->tag, reason,
+                      (unsigned long)(now - f.lastRecoveryEnd));
+        goFault(f);
+        return;
+    }
+    Serial.printf("%c %s - JAM, reversing to clear\n", f.cfg->tag, reason);
+    startJamReverse(f, noCase);
 }
 
 static void handleRunning(Feeder& f) {
@@ -893,19 +973,12 @@ static void handleRunning(Feeder& f) {
                 f.stallActive = true;
                 f.stallTimer = millis();
                 f.lastStallEvent = millis();
-                Serial.printf("%c stall detected - confirming\n", f.cfg->tag);
+                Serial.printf("%c stall detected SG=%u diagPin=%d diagChip=%d - confirming\n",
+                              f.cfg->tag, f.sgResult, diagPinHigh(f) ? 1 : 0, f.diagFromChip ? 1 : 0);
             } else {
                 f.lastStallEvent = millis();
                 if (millis() - f.stallTimer >= f.stallConfirmMs) {
-                    const uint32_t now = millis();
-                    if (f.lastRecoveryEnd != 0 && now - f.lastRecoveryEnd < f.jamRepeatWindowMs) {
-                        Serial.printf("%c jammed again %lu ms after recovery - FAULT\n", f.cfg->tag,
-                                      (unsigned long)(now - f.lastRecoveryEnd));
-                        goFault(f);
-                        return;
-                    }
-                    Serial.printf("%c JAM - reversing to clear\n", f.cfg->tag);
-                    startJamReverse(f);
+                    beginJamRecovery(f, "stall", false);
                     return;
                 }
             }
@@ -916,6 +989,22 @@ static void handleRunning(Feeder& f) {
     } else {
         f.stallActive = false;
         f.stallTimer = 0;
+    }
+
+    // Backup: the gearbox can keep StallGuard happy while the plate is jammed
+    // and the motor is still being stepped at feed speed. No part through the
+    // beam for noCaseJamMs is the same jam. The empty-warning clock is left
+    // alone so a feeder that stays empty still warns and shuts off.
+    if (f.jamDetect && f.noCaseJamMs > 0 && runningAtFeedSpeed(f) && !f.rawBeam) {
+        const uint32_t now = millis();
+        if (f.noCaseSince == 0) f.noCaseSince = now;
+        if (now - f.noCaseSince >= f.noCaseJamMs) {
+            char why[40];
+            snprintf(why, sizeof(why), "no case for %lu ms", (unsigned long)f.noCaseJamMs);
+            beginJamRecovery(f, why, true);
+        }
+    } else {
+        f.noCaseSince = 0;
     }
 }
 
@@ -955,9 +1044,15 @@ static void serviceStateMachine(Feeder& f) {
             if (millis() - f.stateSince >= JAM_PAUSE_MS) {
                 Serial.printf("%c jam cleared - feeding forward\n", f.cfg->tag);
                 f.lastRecoveryEnd = millis();
-                f.lastFedTime = millis();
-                f.idleWarnActive = false;
-                f.idleWarnDismissed = false;
+                // A stall recovery expects parts to start moving again. A
+                // no-case recovery is "still nothing fed", so the empty
+                // warning and idle shutoff keep the time they already had.
+                if (!f.noCaseRecovery) {
+                    f.lastFedTime = millis();
+                    f.idleWarnActive = false;
+                    f.idleWarnDismissed = false;
+                }
+                f.noCaseRecovery = false;
                 f.useSlowStart = false;
                 setDirection(f, true);
                 enterState(f, STATE_RUNNING);
@@ -1082,11 +1177,22 @@ static void printFeeder(Feeder& f) {
                       i == (uint8_t)f.currentStallBand ? "*" : "");
     }
     Serial.println();
-    Serial.printf("  StallGuard:   %u (trip < %u), jam detection %s\n", f.sgResult, f.appliedSgThreshold * 2,
+    Serial.printf("  StallGuard:   %u (trip <= %u)%s, jam detection %s\n", f.sgResult,
+                  f.appliedSgThreshold * 2, f.sgZeroIsStall ? ", full stall" : "",
                   f.jamDetect ? "on" : "OFF");
+    Serial.printf("  DIAG:         pin %s, chip %s\n",
+                  digitalRead(f.cfg->pinDiag) == HIGH ? "HIGH" : "LOW",
+                  f.diagFromChip ? "HIGH" : "low");
     Serial.printf("  jam:          min %lu Hz, reverse %lu Hz for %lu ms, confirm %u ms\n",
                   (unsigned long)f.jamMinSpeedHz, (unsigned long)f.jamReverseHz,
                   (unsigned long)f.cfg->jamReverseMs, f.stallConfirmMs);
+    if (f.noCaseJamMs == 0) {
+        Serial.println("  no-case jam:  off");
+    } else {
+        const uint32_t clearFor = (f.noCaseSince != 0) ? millis() - f.noCaseSince : 0;
+        Serial.printf("  no-case jam:  %lu ms at feed speed with no part (clear %lu ms)\n",
+                      (unsigned long)f.noCaseJamMs, (unsigned long)clearFor);
+    }
     Serial.printf("  beam:         %s (raw %s), blocked reads %s, confirm/clear %u/%u ms\n",
                   f.beamBlocked ? "BLOCKED" : "clear", f.rawBeam ? "blocked" : "clear",
                   f.beamActiveLow ? "LOW" : "HIGH", f.beamConfirmMs, f.beamClearMs);
@@ -1104,7 +1210,7 @@ static void printStatus() {
     Serial.printf("  telemetry / beam log: %s / %s\n", telemetryOn ? "on" : "off", beamLogOn ? "on" : "off");
     for (Feeder& f : feeders) if (f.enabled) printFeeder(f);
     Serial.println("setup:    ? | K <1 case, 2 bullet, 3 dual> | U <0 case, 1 bullet> | R <0/1> | N <0/1> | M <0/1>");
-    Serial.println("advanced: t <0/1> | e <0/1> | j <0/1> | s | v | V | b | B | C | w | W | d | i | o | g | r | a | A | D | T | F");
+    Serial.println("advanced: t <0/1> | e <0/1> | j <0/1> | s | v | V | b | B | C | w | W | d | n | i | o | g | r | a | A | D | T | F");
 }
 
 static void handleSerial() {
@@ -1171,7 +1277,7 @@ static void handleSerial() {
                     if (val >= 0 && val <= 255) {
                         for (uint8_t i = 0; i < f.numBands; i++) f.bands[i].threshold = (uint8_t)val;
                         f.currentStallBand = -1;
-                        Serial.printf("%c all jam bands = %ld (trip < %ld)\n", tg, val, val * 2);
+                        Serial.printf("%c all jam bands = %ld (trip <= %ld)\n", tg, val, val * 2);
                     } else Serial.println("s: 0..255");
                     break;
                 case 'v':
@@ -1190,6 +1296,13 @@ static void handleSerial() {
                 case 'w': if (val >= 100 && val <= 60000) { f.jamRepeatWindowMs = (uint16_t)val; Serial.printf("%c repeat-jam window = %ld ms\n", tg, val); } break;
                 case 'W': if (val >= 50 && val <= 5000) { f.stallConfirmMs = (uint16_t)val; Serial.printf("%c stall confirm = %ld ms\n", tg, val); } break;
                 case 'd': if (val >= 0 && val <= 5000)  { f.stallSettleMs = (uint16_t)val;  Serial.printf("%c stall settle = %ld ms\n", tg, val); } break;
+                case 'n':
+                    if (val == 0 || (val >= 1000 && val <= 120000)) {
+                        f.noCaseJamMs = (uint32_t)val;
+                        f.noCaseSince = 0;
+                        Serial.printf("%c no-case jam = %ld ms%s\n", tg, val, val == 0 ? " (off)" : "");
+                    } else Serial.println("n: 0 = off, or 1000..120000 ms");
+                    break;
                 case 'i':
                     if (val == 0 || (val >= 1000 && val <= 600000)) { f.idleShutoffMs = (uint32_t)val; f.lastFedTime = millis();
                         Serial.printf("%c idle shutoff = %ld ms\n", tg, val); }
@@ -1205,7 +1318,7 @@ static void handleSerial() {
                 case 'A': if (val >= 1000 && val <= 1000000) { f.startupAccelHzPerSec = (uint32_t)val; Serial.printf("%c startup accel = %ld Hz/s\n", tg, val); } break;
                 case 'D': if (val >= 1000 && val <= 1000000) { f.decelHzPerSec = (uint32_t)val; Serial.printf("%c decel = %ld Hz/s\n", tg, val); } break;
                 case 'T':
-                    if (f.driverReady && f.state == STATE_RUNNING) { Serial.printf("%c manual jam test\n", tg); startJamReverse(f); }
+                    if (f.driverReady && f.state == STATE_RUNNING) { Serial.printf("%c manual jam test\n", tg); startJamReverse(f, false); }
                     else Serial.println("T: only while running");
                     break;
                 case 'F': Serial.printf("%c manual FAULT\n", tg); goFault(f); break;
@@ -1221,10 +1334,12 @@ static void updateTelemetry() {
     lastTelemetry = millis();
     for (Feeder& f : feeders) {
         if (!f.enabled) continue;
-        Serial.printf("%c SG:%4u [min %4u max %4u]  trip<%u  hz:%6lu  target:%6lu  state:%d  beam:%d\n",
+        const uint32_t clearFor = (f.noCaseSince != 0) ? millis() - f.noCaseSince : 0;
+        const int diag = (diagPinHigh(f) || f.diagFromChip) ? 1 : 0;
+        Serial.printf("%c SG:%4u [min %4u max %4u]  trip<=%u  hz:%6lu  target:%6lu  state:%d  beam:%d  diag:%d  clear:%lu\n",
                       f.cfg->tag, f.sgResult, f.sgWindowMin == 0xFFFF ? 0 : f.sgWindowMin, f.sgWindowMax,
                       f.appliedSgThreshold * 2, (unsigned long)f.appliedHz, (unsigned long)f.targetHz,
-                      (int)f.state, (int)f.beamBlocked);
+                      (int)f.state, (int)f.beamBlocked, diag, (unsigned long)clearFor);
         f.sgWindowMin = 0xFFFF;
         f.sgWindowMax = 0;
     }
@@ -1242,7 +1357,9 @@ void setup() {
         pinMode(f.cfg->pinEnN, OUTPUT);  digitalWrite(f.cfg->pinEnN, HIGH);
         pinMode(f.cfg->pinStep, OUTPUT); digitalWrite(f.cfg->pinStep, LOW);
         pinMode(f.cfg->pinDir, OUTPUT);  digitalWrite(f.cfg->pinDir, HIGH);
-        pinMode(f.cfg->pinDiag, INPUT);
+        // Open-drain DIAG idles low and releases on a stall. Without the
+        // pull-up the Pico pin floats and a stall never reads HIGH.
+        pinMode(f.cfg->pinDiag, INPUT_PULLUP);
         pinMode(f.cfg->pinBeam, INPUT);
     }
     for (uint8_t p : PINS_UNUSED_DRIVER_EN) { pinMode(p, OUTPUT); digitalWrite(p, HIGH); }
@@ -1308,9 +1425,7 @@ void loop() {
     for (Feeder& f : feeders) {
         if (f.enabled && f.driverReady && f.state == STATE_RUNNING && millis() - f.lastSgRead >= SG_SAMPLE_MS) {
             f.lastSgRead = millis();
-            f.sgResult = f.drv->SG_RESULT();
-            if (f.sgResult < f.sgWindowMin) f.sgWindowMin = f.sgResult;
-            if (f.sgResult > f.sgWindowMax) f.sgWindowMax = f.sgResult;
+            sampleStallGuard(f);
         }
     }
 
