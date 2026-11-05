@@ -11,10 +11,11 @@ place of the LCDWiki lid in [`../controller-case`](../controller-case).
   the tall bosses on the inside of the lid.
 - `Waveshare Wiring - Case Feeder Pro.pdf`: wiring diagram from the SKR Pico
   Raspberry Pi UART header to the Waveshare board.
+- `make_lid_flush.py`: helper that `make_lid_bracket.py` reads from this
+  directory. It holds the Waveshare glass, pocket, and boss dimensions.
 - `make_lid_bracket.py`: generator for the flush lid and the rear bars. It
-  reads `make_lid_flush.py` from the same directory; that helper is not in
-  this folder. The holes are sized for M2.5 screws, and the script can be
-  switched to M2.
+  reads `make_lid_flush.py` from this directory. The holes are sized for
+  M2.5 screws, and the script can be switched to M2.
 - `waveshare-lid-v3-preview.png`: preview of the lid. One view is the
   outside front with the glass pocket; the other is the inside, with the
   opening and the bosses.
