@@ -50,6 +50,19 @@ Outer wall (either bowl):
 | `ABS Outer v5.stl` | 387 x 317 x 420 | shape of the outer wall, cut from 1/16" ABS sheet; not printed |
 | `ABS Outer v5 Flat.dxf` | 932 x 250 (flat) | cutting pattern for the outer wall, full size in millimetres, with the 12 screw holes along the bottom edge |
 
+### Wiper
+
+Printed PETG outer wall and the 9mm case wiper that mounts on it. The
+generators are [`scripts/case_wiper.py`](../stl/case-feeder/scripts/case_wiper.py)
+and [`scripts/make_slots_v2.py`](../stl/case-feeder/scripts/make_slots_v2.py).
+
+| File | Size (mm) | Notes |
+|---|---|---|
+| `case_wiper.stl` | 18 x 50 x 36 | case wiper/kicker v7 for 9mm brass. Mounts with M4×8 screws threading directly into 3.8 mm holes (no heat-set inserts). Prints flat top-down with no supports |
+| `case_wiper.step` | 18 x 50 x 36 | the same wiper as a STEP model |
+| `drill_template.stl` | 4 x 50 x 36 | drill template with 4.5 mm M4 clearance holes |
+| `Case Feeder Outer Wall PETG 3.2mm - wiper slots v2.stl` | 332 x 346 x 250 | outer bowl wall with two wiper adjustment slots, 4.5 mm wide with ±2 mm of height travel. The slot nearest the opening is about 80 mm from the opening edge, with its center about 60 mm up from the bottom of the wall |
+
 ### Base and mounting
 
 | File | Size (mm) | Notes |
